@@ -6,3 +6,4 @@ En esta carpeta del repositorio se encontrara el primer proyecto de esta materia
 este es un ensabmblador de dos pasadas que debe tener 
 -directivas
 -manejo de errores
+-lectura de gramatica
