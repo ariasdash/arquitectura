@@ -2,6 +2,10 @@ from sly import Lexer, Parser
 import json
 import os
 
+base_dir = os.path.dirname(os.path.abspath(__file__))
+with open(os.path.join(base_dir, "REGnames.json"), encoding="utf-8") as f:
+    contenido = f.read()
+    REGnames = json.loads(contenido)
 # ========================
 #  LEXER
 # ========================
@@ -15,9 +19,12 @@ class RV32ILexer(Lexer):
     RPAREN = r'\)'
 
     # Registros (x0, x1, ..., x31)
-    @_(r'x[0-9]|x[12][0-9]|x3[01]')
+    @_(r'x[0-9]|x[12][0-9]|x3[01]|zero|ra|sp|gp|tp|fp|t[0-6]|s[0-9]|s1[01]|a[0-7]')
     def REG(self, t):
-        t.value = int(t.value[1:])  # guardar solo el número
+        if t.value.startswith("x"):
+            t.value = int(t.value[1:])
+        else:
+            t.value = REGnames[t.value]
         return t
 
     # Instrucciones (ADD, SUB, LW, SW, BEQ, BNE, LUI, AUIPC, JAL, JALR, ADDI)
@@ -164,7 +171,7 @@ def test_assembler():
     lexer = RV32ILexer()
     parser = AsmParser()
     # Example J-type instruction
-    code = "JAL x1, 2048"
+    code = "ADDI x1, zero, 10"
     tokens = list(lexer.tokenize(code))
     print("Tokens:", tokens)
     result = parser.parse(iter(tokens))

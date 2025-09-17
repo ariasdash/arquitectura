@@ -1,0 +1,37 @@
+{
+    "NOP": ["addi x0, x0, 0"],
+
+    "LI_SMALL": ["addi {rd}, x0, {imm}"],
+    "LI_LARGE": ["lui {rd}, %hi({imm})", "addi {rd}, {rd}, %lo({imm})"],
+
+    "MV": ["addi {rd}, {rs}, 0"],
+    "NOT": ["xori {rd}, {rs}, -1"],
+    "NEG": ["sub {rd}, x0, {rs}"],
+
+    "SEQZ": ["sltiu {rd}, {rs}, 1"],
+    "SNEZ": ["sltu {rd}, x0, {rs}"],
+    "SLTZ": ["slt {rd}, {rs}, x0"],
+    "SGTZ": ["slt {rd}, x0, {rs}"],
+
+    "BEQZ": ["beq {rs}, x0, {offset}"],
+    "BNEZ": ["bne {rs}, x0, {offset}"],
+    "BLEZ": ["bge x0, {rs}, {offset}"],
+    "BGEZ": ["bge {rs}, x0, {offset}"],
+    "BLTZ": ["blt {rs}, x0, {offset}"],
+    "BGTZ": ["blt x0, {rs}, {offset}"],
+
+    "BGT": ["blt {rt}, {rs}, {offset}"],
+    "BLE": ["bge {rt}, {rs}, {offset}"],
+    "BGTU": ["bltu {rt}, {rs}, {offset}"],
+    "BLEU": ["bgeu {rt}, {rs}, {offset}"],
+
+    "J": ["jal x0, {offset}"],
+    "JAL_OFF": ["jal x1, {offset}"],
+    "JR": ["jalr x0, {rs}, 0"],
+    "JALR_REG": ["jalr x1, {rs}, 0"],
+
+    "RET": ["jalr x0, x1, 0"],
+
+    "CALL": ["auipc x1, %pcrel_hi({offset})", "jalr x1, %pcrel_lo({offset})(x1)"],
+    "TAIL": ["auipc x6, %pcrel_hi({offset})", "jalr x0, %pcrel_lo({offset})(x6)"]
+}
