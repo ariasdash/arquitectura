@@ -1,6 +1,7 @@
 {
     "NOP": ["addi x0, x0, 0"],
 
+    "LI": ["addi {rd}, x0, {imm}"],
     "LI_SMALL": ["addi {rd}, x0, {imm}"],
     "LI_LARGE": ["lui {rd}, %hi({imm})", "addi {rd}, {rd}, %lo({imm})"],
 
