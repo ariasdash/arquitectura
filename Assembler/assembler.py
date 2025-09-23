@@ -1,6 +1,11 @@
 from sly import Lexer, Parser
 import json
 import os
+"""
+*direcciones de carga valida
+*.data 
+
+"""
 
 # Definir el decorador _ para reglas de SLY
 def _(pattern):
@@ -27,19 +32,19 @@ ISA = {
 with open(os.path.join(base_dir, "pseudo.json"), encoding="utf-8") as f:
     PSEUDO_INSTRUCTIONS = json.load(f)
 
-
-base_dir = os.path.dirname(os.path.abspath(__file__))
+# Cargar nombres de registros
 with open(os.path.join(base_dir, "REGnames.json"), encoding="utf-8") as f:
-    contenido = f.read()
-    REGnames = json.loads(contenido)
+    REGnames = json.load(f)
 
 # Crear conjunto de mnemonics incluyendo pseudoinstrucciones
 MNEMONICS = set()
 for table in ISA.values():
     MNEMONICS.update(table.keys())
-# Agregar pseudoinstrucciones a MNEMONICS
 MNEMONICS.update(PSEUDO_INSTRUCTIONS.keys())
 
+# ========================
+#  PSEUDOINSTRUCCIONES
+# ========================
 def expand_pseudo_instruction(mnemonic, args):
     if mnemonic not in PSEUDO_INSTRUCTIONS:
         return None
@@ -51,19 +56,16 @@ def expand_pseudo_instruction(mnemonic, args):
     str_args = [str(arg) for arg in args]
     
     for template in templates:
-        # Reemplazar los placeholders con los argumentos reales
         instruction = template
         
         # Mapeo específico para diferentes patrones de pseudoinstrucciones
         if mnemonic in ["BEQZ", "BNEZ", "BLEZ", "BGEZ", "BLTZ", "BGTZ"]:
-            # Para branches: primer arg es rs, segundo es offset
             if len(str_args) >= 1:
                 instruction = instruction.replace("{rs}", f"x{str_args[0]}")
             if len(str_args) >= 2:
                 instruction = instruction.replace("{offset}", str_args[1])
         
         elif mnemonic in ["BGT", "BLE", "BGTU", "BLEU"]:
-            # Para branches comparativos: primer arg es rs, segundo es rt, tercero es offset
             if len(str_args) >= 1:
                 instruction = instruction.replace("{rs}", f"x{str_args[0]}")
             if len(str_args) >= 2:
@@ -72,36 +74,27 @@ def expand_pseudo_instruction(mnemonic, args):
                 instruction = instruction.replace("{offset}", str_args[2])
         
         elif mnemonic in ["LI", "LI_SMALL", "LI_LARGE"]:
-            # Para load immediate: primer arg es rd, segundo es imm
             if len(str_args) >= 1:
                 instruction = instruction.replace("{rd}", f"x{str_args[0]}")
             if len(str_args) >= 2:
                 instruction = instruction.replace("{imm}", str_args[1])
         
         elif mnemonic in ["MV", "NOT", "NEG", "SEQZ", "SNEZ", "SLTZ", "SGTZ"]:
-            # Para operaciones unarias: primer arg es rd, segundo es rs
             if len(str_args) >= 1:
                 instruction = instruction.replace("{rd}", f"x{str_args[0]}")
             if len(str_args) >= 2:
                 instruction = instruction.replace("{rs}", f"x{str_args[1]}")
         
         elif mnemonic in ["J", "JAL_OFF"]:
-            # Para jumps: primer arg es offset
             if len(str_args) >= 1:
                 instruction = instruction.replace("{offset}", str_args[0])
         
         elif mnemonic in ["JR", "JALR_REG"]:
-            # Para jump register: primer arg es rs
             if len(str_args) >= 1:
                 instruction = instruction.replace("{rs}", f"x{str_args[0]}")
         
-        elif mnemonic in ["CALL", "TAIL"]:
-            # Para calls: primer arg es offset
-            if len(str_args) >= 1:
-                instruction = instruction.replace("{offset}", str_args[0])
-        
         else:
-            # Mapeo genérico para otros casos
+            # Mapeo genérico
             if len(str_args) >= 1:
                 instruction = instruction.replace("{rd}", f"x{str_args[0]}")
                 instruction = instruction.replace("{rs}", f"x{str_args[0]}")
@@ -122,22 +115,19 @@ def expand_pseudo_instruction(mnemonic, args):
 #  LEXER
 # ========================
 class RV32ILexer(Lexer):
-    tokens = { 'INSTR', 'REG', 'NUMBER', 'COMMA', 'LPAREN', 'RPAREN', 'IDENT', 'COLON', 'DIRECTIVE' }
+    tokens = { 'INSTR', 'REG', 'NUMBER', 'COMMA', 'LPAREN', 'RPAREN', 'IDENT', 'COLON', 'DIRECTIVE', 'NEWLINE' }
     ignore = ' \t'
 
-    # Tokens simples
     COMMA  = r','
     LPAREN = r'\('
     RPAREN = r'\)'
     COLON = r':'
 
-    # Directivas (.text, .data, .word, ...)
     @_(r'\.[A-Za-z]+')
     def DIRECTIVE(self, t):
         t.value = t.value.lower()
         return t
     
-    # Números inmediatos (decimales o hexadecimales)
     @_(r'-?(0x[0-9A-Fa-f]+|\d+)')
     def NUMBER(self, t):
         if t.value.startswith("0x"):
@@ -146,37 +136,31 @@ class RV32ILexer(Lexer):
             t.value = int(t.value)
         return t
 
-    #Registros: x0..x31 o nombres
     @_(r'x(?:[0-9]|[1-2][0-9]|3[0-1])\b|(?:zero|ra|sp|gp|tp|fp|t[0-6]|s(?:[0-9]|1[0-1])|a[0-7])\b')
     def REG(self, t):
         v = t.value
         if v.startswith('x'):
             t.value = int(v[1:])
         else:
-            t.value = REGnames[v]   # REGnames debe mapear 'zero'->0, 'ra'->1, etc.
+            t.value = REGnames[v]
         return t
     
-    # Identificadores (etiquetas o posibles mnemónicos)
     @_(r'[A-Za-z_][A-Za-z0-9_]*')
     def IDENT(self, t):
-        # Si la palabra es un mnemónico conocido => token INSTR
         if t.value.upper() in MNEMONICS:
             t.type = 'INSTR'
             t.value = t.value.upper()
         else:
-            # dejar IDENT en minúsculas facilita consistencia, pero opcional
             t.value = t.value
         return t
     
-    # Nuevas líneas -> actualizar contador de línea
     @_(r'\n+')
-    def ignore_newline(self, t):
+    def NEWLINE(self, t):
         self.lineno += t.value.count('\n')
+        return t
 
     def error(self, t):
         raise SyntaxError(f"Línea {self.lineno}: caracter ilegal {t.value[0]!r}")
-
-
 
 # ========================
 #  PARSER
@@ -185,21 +169,30 @@ class AsmParser(Parser):
     tokens = RV32ILexer.tokens
     expected_shift_reduce = 1
 
-    # Start rule: un programa es una lista de declaraciones
-    @_('declaration_list')
+    @_('statement_list')
     def program(self, p):
-        return p.declaration_list
+        return [stmt for stmt in p.statement_list if stmt is not None]
 
-    # Lista de declaraciones
+    @_('statement')
+    def statement_list(self, p):
+        return [p.statement]
+
+    @_('statement_list statement')
+    def statement_list(self, p):
+        return p.statement_list + [p.statement]
+
     @_('declaration')
-    def declaration_list(self, p):
-        return [p.declaration]
+    def statement(self, p):
+        return p.declaration
+    
+    @_('declaration NEWLINE')
+    def statement(self, p):
+        return p.declaration
+    
+    @_('NEWLINE')
+    def statement(self, p):
+        return None
 
-    @_('declaration declaration_list')
-    def declaration_list(self, p):
-        return [p.declaration] + p.declaration_list
-
-    # Declaraciones posibles
     @_('IDENT COLON')
     def declaration(self, p):
         return ("LABEL", p.IDENT)
@@ -212,11 +205,9 @@ class AsmParser(Parser):
     def declaration(self, p):
         return ("DIRECTIVE", p.DIRECTIVE)
 
-    # Connect all instruction types
-    # Single unified instruction rule: INSTR optionally followed by a list of operands.
     @_('INSTR')
     def instruction(self, p):
-        # Adjuntamos el número de línea a la instrucción parseada
+        self.current_line = p.lineno  # Guardar línea actual
         instr = self.build_from_mnemonic(p.INSTR, [])
         if instr:
             instr.append(p.lineno)
@@ -225,7 +216,7 @@ class AsmParser(Parser):
 
     @_('INSTR operand_list')
     def instruction(self, p):
-        # Adjuntamos el número de línea a la instrucción parseada
+        self.current_line = p.lineno  # Guardar línea actual
         instr = self.build_from_mnemonic(p.INSTR, p.operand_list)
         if instr:
             instr.append(p.lineno)
@@ -256,48 +247,36 @@ class AsmParser(Parser):
     def operand(self, p):
         return ('IDENT', p.IDENT)
 
-    def build_r(self, info, rd, rs1, rs2):
-        return ("R", info, rd, rs1, rs2)
-
-    def build_i(self, info, rd, rs1, imm):
-        return ("I", info, rd, rs1, imm)
-
-    def build_b(self, info, rs1, rs2, offset):
-        return ("B", info, rs1, rs2, offset)
-
-    def build_s(self, info, rs2, rs1, offset):
-        return ("S", info, rs2, rs1, offset)
-
-    def build_u(self, info, rd, imm):
-        return ("U", info, rd, imm)
-
-    def build_j(self, info, rd, offset):
-        return ("J", info, rd, offset)
-
-    def build_pseudo(self, mnemonic, args):
-        return ("PSEUDO", mnemonic, args)
-
     def build_from_mnemonic(self, mnemonic, operands):
-
+        line_num = getattr(self, 'current_line', 0)
+        
         if mnemonic in PSEUDO_INSTRUCTIONS:
-            # convertir operandos a lista simple (regs como enteros, numbers, idents)
             args = []
             for op in operands:
                 if op[0] == 'REG':
+                    if not (0 <= op[1] <= 31):
+                        raise ValueError(f"Línea {line_num}: Registro x{op[1]} no válido (rango: x0-x31)")
                     args.append(op[1])
                 elif op[0] == 'NUMBER':
                     args.append(op[1])
                 elif op[0] == 'IDENT':
                     args.append(op[1])
                 elif op[0] == 'MEM':
-                    # Representar memoria como (imm, reg)
+                    if not (0 <= op[2] <= 31):
+                        raise ValueError(f"Línea {line_num}: Registro x{op[2]} no válido (rango: x0-x31)")
                     args.append((op[1], op[2]))
                 else:
                     args.append(op)
             return ["PSEUDO", mnemonic, args]
 
-        # No es pseudo: determinar tipo por tablas ISA y número/tipo de operandos
-        # Normalizar operandos: extraer solo valores
+        # Validar operandos básicos primero
+        for i, op in enumerate(operands):
+            if op[0] == 'REG' and not (0 <= op[1] <= 31):
+                raise ValueError(f"Línea {line_num}: Registro x{op[1]} no válido (rango: x0-x31)")
+            elif op[0] == 'MEM' and not (0 <= op[2] <= 31):
+                raise ValueError(f"Línea {line_num}: Registro x{op[2]} no válido (rango: x0-x31)")
+
+        # Normalizar operandos
         vals = []
         for op in operands:
             if op[0] == 'REG':
@@ -311,77 +290,174 @@ class AsmParser(Parser):
             else:
                 vals.append(op)
 
-        # Heurísticas simples para decidir el tipo (pueden ajustarse según ISA)
+        # Validación específica por tipo de instrucción
         if mnemonic in ISA.get('R', {}):
+            # R-type: registro, registro, registro
+            if len(operands) != 3:
+                raise SyntaxError(f"Línea {line_num}: Instrucción '{mnemonic}' requiere 3 operandos, encontrados {len(operands)}")
+            for i, op in enumerate(operands):
+                if op[0] != 'REG':
+                    raise SyntaxError(f"Línea {line_num}: Operando {i+1} de '{mnemonic}' debe ser registro, encontrado {op[0]}")
+            
             if len(vals) == 3 and all(isinstance(v, int) for v in vals):
                 info = ISA['R'][mnemonic]
                 return ["R", info, vals[0], vals[1], vals[2]]
 
-        if mnemonic in ISA.get('I', {}) and len(vals) == 3:
-            info = ISA['I'][mnemonic]
-            return ["I", info, vals[0], vals[1], vals[2]]
+        if mnemonic in ISA.get('I', {}):
+            if mnemonic in ["EBREAK", "ECALL"]:
+                # ebreak y ecall no necesitan operandos
+                if len(operands) != 0:
+                    raise SyntaxError(f"Línea {line_num}: Instrucción '{mnemonic}' no debe tener operandos")
+                info = ISA['I'][mnemonic]
+                # Usar el immediate definido en el JSON para diferenciar ECALL (0) de EBREAK (1)
+                immediate_value = int(info[2], 2)  # Convertir el immediate del JSON a entero
+                return ["I", info, 0, 0, immediate_value]
+    
+            if mnemonic in ["SLLI", "SRLI", "SRAI"]:
+                shift = vals[2]
+                if not (0 <= shift < 32):   # para RV32
+                    raise ValueError(f"corrimiento inválido: {shift} en {mnemonic}")
+    
+            # I-type puede ser: reg, reg, imm O reg, offset(reg) para loads
+            if any(op[0] == 'MEM' for op in operands):
+                # Formato load: lw rd, offset(rs1)
+                if len(operands) != 2:
+                    raise SyntaxError(f"Línea {line_num}: Instrucción '{mnemonic}' (load) requiere 2 operandos, encontrados {len(operands)}")
+                if operands[0][0] != 'REG':
+                    raise SyntaxError(f"Línea {line_num}: Primer operando de '{mnemonic}' debe ser registro")
+                if operands[1][0] != 'MEM':
+                    raise SyntaxError(f"Línea {line_num}: Segundo operando de '{mnemonic}' debe ser offset(registro)")
+                
+                if len(vals) == 2 and isinstance(vals[1], tuple):
+                    rd = vals[0]
+                    offset, rs1 = vals[1]
+                    # Validar rango del offset
+                    if not (-2048 <= offset <= 2047):
+                        raise ValueError(f"Línea {line_num}: Offset {offset} fuera de rango para load (-2048 a 2047)")
+                    info = ISA['I'][mnemonic]
+                    return ["I", info, rd, rs1, offset]
+            else:
+                # Formato normal: addi rd, rs1, imm
+                if len(operands) != 3:
+                    raise SyntaxError(f"Línea {line_num}: Instrucción '{mnemonic}' requiere 3 operandos, encontrados {len(operands)}")
+                if operands[0][0] != 'REG':
+                    raise SyntaxError(f"Línea {line_num}: Primer operando de '{mnemonic}' debe ser registro")
+                if operands[1][0] != 'REG':
+                    raise SyntaxError(f"Línea {line_num}: Segundo operando de '{mnemonic}' debe ser registro")
+                if operands[2][0] != 'NUMBER':
+                    raise SyntaxError(f"Línea {line_num}: Tercer operando de '{mnemonic}' debe ser inmediato")
+                
+                if len(vals) == 3:
+                    rd, rs1, imm = vals[0], vals[1], vals[2]
+                    # Validar rango del inmediato
+                    if not (-2048 <= imm <= 2047):
+                        raise ValueError(f"Línea {line_num}: Inmediato {imm} fuera de rango para tipo I (-2048 a 2047)")
+                    info = ISA['I'][mnemonic]
+                    return ["I", info, rd, rs1, imm]
+
 
         if mnemonic in ISA.get('S', {}):
+            # S-type: sw rs2, offset(rs1)
+            if len(operands) != 2:
+                raise SyntaxError(f"Línea {line_num}: Instrucción '{mnemonic}' requiere 2 operandos, encontrados {len(operands)}")
+            if operands[0][0] != 'REG':
+                raise SyntaxError(f"Línea {line_num}: Primer operando de '{mnemonic}' debe ser registro")
+            if operands[1][0] != 'MEM':
+                raise SyntaxError(f"Línea {line_num}: Segundo operando de '{mnemonic}' debe ser offset(registro)")
+            
             info = ISA['S'][mnemonic]
+            if len(vals) == 2 and isinstance(vals[1], tuple):
+                rs2 = vals[0]
+                offset, rs1 = vals[1]
+                # Validar rango del offset
+                if not (-2048 <= offset <= 2047):
+                    raise ValueError(f"Línea {line_num}: Offset {offset} fuera de rango para store (-2048 a 2047)")
+                return ["S", info, rs2, rs1, offset]
 
+        if mnemonic in ISA.get('B', {}):
+            # B-type: beq rs1, rs2, label
+            if len(operands) != 3:
+                raise SyntaxError(f"Línea {line_num}: Instrucción '{mnemonic}' requiere 3 operandos, encontrados {len(operands)}")
+            if operands[0][0] != 'REG':
+                raise SyntaxError(f"Línea {line_num}: Primer operando de '{mnemonic}' debe ser registro")
+            if operands[1][0] != 'REG':
+                raise SyntaxError(f"Línea {line_num}: Segundo operando de '{mnemonic}' debe ser registro")
+            if operands[2][0] != 'IDENT':
+                raise SyntaxError(f"Línea {line_num}: Tercer operando de '{mnemonic}' debe ser etiqueta")
+            
+            if len(vals) == 3:
+                info = ISA['B'][mnemonic]
+                return ["B", info, vals[0], vals[1], vals[2]]
+
+        if mnemonic in ISA.get('U', {}):
+            # U-type: lui rd, imm
+            if len(operands) != 2:
+                raise SyntaxError(f"Línea {line_num}: Instrucción '{mnemonic}' requiere 2 operandos, encontrados {len(operands)}")
+            if operands[0][0] != 'REG':
+                raise SyntaxError(f"Línea {line_num}: Primer operando de '{mnemonic}' debe ser registro")
+            if operands[1][0] != 'NUMBER':
+                raise SyntaxError(f"Línea {line_num}: Segundo operando de '{mnemonic}' debe ser inmediato")
+            
             if len(vals) == 2:
-                rs2 = vals[0]  # registro fuente
-                if isinstance(vals[1], tuple) and len(vals[1]) == 2:
-                    offset, rs1 = vals[1]  # offset y registro base de la memoria
-                    return ["S", info, rs2, rs1, offset]
-            # Formato alternativo: rs2, rs1, offset
-            elif len(vals) == 3:
-                return ["S", info, vals[0], vals[1], vals[2]]
+                rd, imm = vals[0], vals[1]
+                # Validar rango del inmediato (20 bits)
+                if not (-524288 <= imm <= 524287):
+                    raise ValueError(f"Línea {line_num}: Inmediato {imm} fuera de rango para tipo U (-524288 a 524287)")
+                info = ISA['U'][mnemonic]
+                return ["U", info, rd, imm]
 
-        if mnemonic in ISA.get('B', {}) and len(vals) == 3:
-            info = ISA['B'][mnemonic]
-            return ["B", info, vals[0], vals[1], vals[2]]
+        if mnemonic in ISA.get('J', {}):
+            # J-type: jal rd, label
+            if len(operands) != 2:
+                raise SyntaxError(f"Línea {line_num}: Instrucción '{mnemonic}' requiere 2 operandos, encontrados {len(operands)}")
+            if operands[0][0] != 'REG':
+                raise SyntaxError(f"Línea {line_num}: Primer operando de '{mnemonic}' debe ser registro")
+            if operands[1][0] != 'IDENT':
+                raise SyntaxError(f"Línea {line_num}: Segundo operando de '{mnemonic}' debe ser etiqueta")
+            
+            if len(vals) == 2:
+                info = ISA['J'][mnemonic]
+                return ["J", info, vals[0], vals[1]]
 
-        if mnemonic in ISA.get('U', {}) and len(vals) == 2:
-            info = ISA['U'][mnemonic]
-            return ["U", info, vals[0], vals[1]]
+        raise SyntaxError(f"Línea {line_num}: No se pudo interpretar instrucción '{mnemonic}' con operandos {operands}")
 
-        if mnemonic in ISA.get('J', {}) and len(vals) == 2:
-            info = ISA['J'][mnemonic]
-            return ["J", info, vals[0], vals[1]]
-
-        raise SyntaxError(f"No se pudo interpretar instrucción '{mnemonic}' con operandos {operands}")
-
+# ========================
+#  PRIMERA PASADA
+# ========================
 def first_pass(source_code):
+    """Primera pasada: construir tabla de etiquetas"""
     labels = {}
-    instruction_addresses = {}  # Mapea lineno -> PC
+    instruction_addresses = {}
     PC = 0
+    
     for lineno, raw in enumerate(source_code.splitlines(), start=1):
         line = raw.strip()
-        if not line or line.startswith('#'):  # Ignorar comentarios
+        if not line or line.startswith('#'):
             continue
 
         code = line
-        # Una línea puede tener una etiqueta y una instrucción
+        # Manejar etiquetas
         if ':' in code:
             label, rest = code.split(':', 1)
             label = label.strip()
             if label:
                 if label in labels:
-                    print(f"   ADVERTENCIA: Etiqueta '{label}' redefinida en línea {lineno}")
+                    print(f"ADVERTENCIA: Etiqueta '{label}' redefinida en línea {lineno}")
                 labels[label] = PC
             code = rest.strip()
 
+        # Si hay una instrucción, incrementar PC
         if code:
-            # Esta línea contiene una instrucción, guardar su PC y luego incrementarlo.
             instruction_addresses[lineno] = PC
             PC += 4
 
     return labels, instruction_addresses, PC
 
 # ========================
-#  SECOND PASS
+#  SEGUNDA PASADA
 # ========================
-
 def assemble_instruction(instr, labels, instruction_addresses):
-    """
-    Convierte una única instrucción parseada a su código máquina de 32 bits.
-    """
+    """Convierte una instrucción parseada a código máquina de 32 bits"""
     instr_type = instr[0]
     
     if instr_type not in ["R", "I", "S", "B", "U", "J"]:
@@ -390,15 +466,12 @@ def assemble_instruction(instr, labels, instruction_addresses):
     line_num = instr[-1]
     pc = instruction_addresses.get(line_num)
     if pc is None:
-
-        print(f"Advertencia: No se encontró PC para la instrucción en la línea (o derivada de la línea) {line_num}: {instr}")
+        print(f"Advertencia: No se encontró PC para línea {line_num}")
         return None
 
-    word = 0
     info = instr[1]
-    
-    # La info es una lista: [opcode, funct3, funct7] (para R/I/S/B) o [opcode] (para U/J)
     opcode = int(info[0], 2)
+    word = 0
 
     if instr_type == "R":
         rd, rs1, rs2 = instr[2], instr[3], instr[4]
@@ -410,20 +483,17 @@ def assemble_instruction(instr, labels, instruction_addresses):
         rd, rs1, imm = instr[2], instr[3], instr[4]
         funct3 = int(info[1], 2)
         
-        # Interpretación específica para valores hexadecimales de 8 bits
-        # 0xff debe interpretarse como -1, no como +255
-        if imm == 0xff:  # Caso específico: 0xff -> -1
+        # Manejo especial para valores hexadecimales
+        if imm == 0xff:
             imm = -1
-        elif imm >= 0x80 and imm <= 0xff:  # Valores 0x80-0xff como signed de 8 bits
-            imm = imm - 0x100  # Convertir a complemento a 2 de 8 bits extendido
-        elif imm >= 0x800:  # RISC-V estándar para valores >= 2048
-            imm = imm - 0x1000  # Convertir a complemento a 2 de 12 bits
+        elif imm >= 0x80 and imm <= 0xff:
+            imm = imm - 0x100
+        elif imm >= 0x800:
+            imm = imm - 0x1000
         
-        # Verificar rango válido para RISC-V tipo I
         if not (-2048 <= imm <= 2047):
-            raise ValueError(f"Línea {line_num}: Inmediato {imm} fuera de rango para tipo I (-2048 a 2047).")
+            raise ValueError(f"Línea {line_num}: Inmediato {imm} fuera de rango para tipo I")
         
-        # Convertir a representación de 12 bits (complemento a 2 si es negativo)
         imm_12bit = imm & 0xFFF
         word = (imm_12bit << 20) | (rs1 << 15) | (funct3 << 12) | (rd << 7) | opcode
 
@@ -432,11 +502,11 @@ def assemble_instruction(instr, labels, instruction_addresses):
         funct3 = int(info[1], 2)
         target_addr = labels.get(label)
         if target_addr is None:
-            raise NameError(f"Línea {line_num}: Etiqueta '{label}' no definida.")
+            raise NameError(f"Línea {line_num}: Etiqueta '{label}' no definida")
         
         offset = target_addr - pc
         if not (-4096 <= offset <= 4094) or offset % 2 != 0:
-            raise ValueError(f"Línea {line_num}: Salto a '{label}' fuera de rango ({offset} bytes).")
+            raise ValueError(f"Línea {line_num}: Salto a '{label}' fuera de rango")
 
         imm12 = (offset >> 12) & 1
         imm11 = (offset >> 11) & 1
@@ -450,11 +520,11 @@ def assemble_instruction(instr, labels, instruction_addresses):
         rd, label = instr[2], instr[3]
         target_addr = labels.get(label)
         if target_addr is None:
-            raise NameError(f"Línea {line_num}: Etiqueta '{label}' no definida.")
+            raise NameError(f"Línea {line_num}: Etiqueta '{label}' no definida")
         
         offset = target_addr - pc
         if not (-1048576 <= offset <= 1048574) or offset % 2 != 0:
-            raise ValueError(f"Línea {line_num}: Salto a '{label}' fuera de rango para JAL.")
+            raise ValueError(f"Línea {line_num}: Salto a '{label}' fuera de rango para JAL")
 
         imm20 = (offset >> 20) & 1
         imm19_12 = (offset >> 12) & 0xFF
@@ -464,74 +534,54 @@ def assemble_instruction(instr, labels, instruction_addresses):
     
     elif instr_type == "U":
         rd, imm = instr[2], instr[3]
-        # Para U-type, el immediate ocupa los bits [31:12]
-        if not (-524288 <= imm <= 524287):  # 20 bits signed
-            raise ValueError(f"Línea {line_num}: Inmediato {imm} fuera de rango para tipo U.")
+        if not (-524288 <= imm <= 524287):
+            raise ValueError(f"Línea {line_num}: Inmediato {imm} fuera de rango para tipo U")
         word = ((imm & 0xFFFFF) << 12) | (rd << 7) | opcode
     
     elif instr_type == "S":
         rs2, rs1, offset = instr[2], instr[3], instr[4]
         funct3 = int(info[1], 2)
         if not (-2048 <= offset <= 2047):
-            raise ValueError(f"Línea {line_num}: Offset {offset} fuera de rango para tipo S.")
+            raise ValueError(f"Línea {line_num}: Offset {offset} fuera de rango para tipo S")
         
-        imm11_5 = (offset >> 5) & 0x7F  # bits [11:5]
-        imm4_0 = offset & 0x1F          # bits [4:0]
+        imm11_5 = (offset >> 5) & 0x7F
+        imm4_0 = offset & 0x1F
         word = (imm11_5 << 25) | (rs2 << 20) | (rs1 << 15) | (funct3 << 12) | (imm4_0 << 7) | opcode
-
-    # Aquí iría la lógica para los tipos S y U
-    # ...
 
     return word
 
 def second_pass(instructions, labels, instruction_addresses):
+    """Segunda pasada: generar código máquina"""
     machine_code = []
     for instr in instructions:
-        if not instr: continue
+        if not instr: 
+            continue
         code_word = assemble_instruction(instr, labels, instruction_addresses)
         if code_word is not None:
             machine_code.append(code_word)
     return machine_code
 
-def write_binary_output(machine_code, filename="output.bin"):
-    """Escribe el código máquina en un archivo binario."""
-    with open(filename, "wb") as f:
-        print(f"--- Escribiendo código máquina en '{filename}' ---")
-        for i, word in enumerate(machine_code):
-            # El PC de cada instrucción es 4 * i
-            pc_hex = f"{i*4:04x}"
-            # El código máquina se formatea a 32 bits (8 dígitos hexadecimales)
-            hex_word = f"{word & 0xFFFFFFFF:08x}"
-            print(f"Dirección 0x{pc_hex}: 0x{hex_word}")
-            
-            # Escribir la palabra de 32 bits en formato little-endian
-            f.write(word.to_bytes(4, byteorder='little'))
-    print(f"Archivo binario '{filename}' generado con {len(machine_code)} instrucciones ({len(machine_code)*4} bytes)")
-    print("-------------------------------------------------")
-
 def expand_all_pseudo(instructions, lexer, parser):
+    """Expandir todas las pseudoinstrucciones"""
     final_instructions = []
     if not instructions:
         return []
         
     for instr in instructions:
-        if not instr: continue
+        if not instr: 
+            continue
         
         if instr[0] == "PSEUDO":
             mnemonic, args, lineno = instr[1], instr[2], instr[-1]
             expanded_lines = expand_pseudo_instruction(mnemonic, args)
             
             for line in expanded_lines:
-                # Parseamos cada línea expandida para obtener una instrucción real
                 parsed_expanded = parser.parse(lexer.tokenize(line))
                 if parsed_expanded:
                     new_instr_tuple = parsed_expanded[0]
-                    
-                    # Si es una lista, convertimos a tupla
                     if isinstance(new_instr_tuple, list):
                         new_instr_tuple = tuple(new_instr_tuple)
                     
-                    # Convertimos a lista para poder añadir el lineno
                     new_instr_list = list(new_instr_tuple)
                     new_instr_list.append(lineno)
                     final_instructions.append(tuple(new_instr_list))
@@ -539,70 +589,98 @@ def expand_all_pseudo(instructions, lexer, parser):
             final_instructions.append(instr)
     return final_instructions
 
-def build_pseudo(mnemonic, args):
-    expanded_instructions = expand_pseudo_instruction(mnemonic, args)
-    if expanded_instructions is None:
-        raise SyntaxError(f"Pseudoinstrucción no reconocida: {mnemonic}")
-    return [("PSEUDO_EXPANDED", instr) for instr in expanded_instructions]
+# ========================
+#  FUNCIÓN PRINCIPAL
+# ========================
+def main():
+    """Función principal del ensamblador"""
+    print("=== Ensamblador RV32I ===")
+    
+    # Leer archivo de entrada (como el código simple)
+    try:
+        with open('arquitectura/Assembler/ejemplo.asm', 'r', encoding='utf-8') as f:
+            data = f.read()
+        print("Archivo 'ejemplo.asm' leído correctamente")
+    except FileNotFoundError:
+        print("Error: No se encontró el archivo 'ejemplo.asm'")
+        return
+    except Exception as e:
+        print(f"Error leyendo archivo: {e}")
+        return
 
-def test_assembler():
-    source_code = """
-    addi a1, a1, 5
-    addi a2, a2, 0
-    addi a3, a3, 1
-    addi a4, a4, 0
-
-
-    Loop:
-    mv t1, a2
-    mv a2, a3
-    add a3, a3, t1
-    sb t1, 0(t2)
-    addi t2, t2, 4
-    addi a4, a4, 1
-    bltu a4, a1, Loop
-    """
+    # Inicializar lexer y parser
     lexer = RV32ILexer()
     parser = AsmParser()
     
-    # --- Flujo de Ensamblado de Dos Pasadas ---
-
-    # 1. Primera Pasada: Obtener direcciones de etiquetas e instrucciones
-    labels, instruction_addresses, final_pc = first_pass(source_code)
-    print("--- Primera Pasada ---")
-    print("Labels:", labels)
-    print("Instruction Addresses:", instruction_addresses)
-    print(f"PC final estimado: 0x{final_pc:08X} ({final_pc} bytes)\n")
-
-    # 2. Parseo del código fuente
-    parsed_instructions = list(parser.parse(lexer.tokenize(source_code)))
-
-    final_instructions = expand_all_pseudo(parsed_instructions, lexer, parser)
-    print("--- Instrucciones Finales (post-expansión) ---")
-    for instr in final_instructions:
-        print(instr)
-    print("")
-
- 
-    machine_code = second_pass(final_instructions, labels, instruction_addresses)
-    
-   
-    print("--- Segunda Pasada (Código Máquina) ---")
-    if not machine_code:
-        print("No se generó código máquina.")
-    else:
+    try:
+        # Primera pasada: buscar etiquetas y calcular direcciones
+        print("\n=== PRIMERA PASADA ===")
+        labels, instruction_addresses, final_pc = first_pass(data)
+        print(f"Etiquetas encontradas: {labels}")
+        print(f"PC final: 0x{final_pc:08X} ({final_pc} bytes)")
+        
+        # Parsear todas las instrucciones
+        print("\n=== PARSING ===")
+        try:
+            result = parser.parse(lexer.tokenize(data))
+            if result is None:
+                print("Error: No se pudo parsear el archivo. Revisa la sintaxis.")
+                return
+            parsed_instructions = list(result)
+        except (SyntaxError, ValueError) as e:
+            print(f"Error de validación: {e}")
+            print("El ensamblado se detiene debido a errores en el código fuente.")
+            return
+        except Exception as e:
+            print(f"Error inesperado durante el parsing: {e}")
+            return
+        
+        # Expandir pseudoinstrucciones
+        print("Expandiendo pseudoinstrucciones...")
+        final_instructions = expand_all_pseudo(parsed_instructions, lexer, parser)
+        print(f"Total de instrucciones después de expansión: {len(final_instructions)}")
+        
+        # Segunda pasada: generar código máquina
+        print("\n=== SEGUNDA PASADA ===")
+        machine_code = second_pass(final_instructions, labels, instruction_addresses)
+        
+        if not machine_code:
+            print("Error: No se generó código máquina")
+            return
+        
+        print(f"Código máquina generado: {len(machine_code)} instrucciones")
+        
+        # Escribir archivos de salida (como el código simple)
+        print("\n=== GENERANDO ARCHIVOS ===")
+        
+        # Archivo hexadecimal
+        with open("output.hex", "w") as f:
+            for word in machine_code:
+                f.write(f"{word & 0xFFFFFFFF:08x}\n")
+        print("Archivo 'output.hex' generado")
+        
+        # Archivo binario (texto con 0s y 1s)
+        with open("output.bin", "w") as f:
+            for word in machine_code:
+                binary_str = f"{word & 0xFFFFFFFF:032b}"
+                f.write(binary_str + "\n")
+        print("Archivo 'output.bin' generado (formato texto binario)")
+        
+        # Mostrar resultado en consola
+        print("\n=== CÓDIGO MÁQUINA ===")
         for i, word in enumerate(machine_code):
-            # El PC de cada instrucción es 4 * i
             pc_hex = f"{i*4:04x}"
-            # El código máquina se formatea a 32 bits (8 dígitos hexadecimales)
             hex_word = f"{word & 0xFFFFFFFF:08x}"
-            # Mostrar también en formato binario para referencia
             bin_word = f"{word & 0xFFFFFFFF:032b}"
             print(f"0x{pc_hex}: 0x{hex_word} | {bin_word}")
         
-        print(f"\nTotal: {len(machine_code)} instrucciones ({len(machine_code)*4} bytes)")
-
+        print(f"\nEnsamblado completado exitosamente!")
+        print(f"Total: {len(machine_code)} instrucciones ({len(machine_code)*4} bytes)")
+        
+    except Exception as e:
+        print(f"Error durante el ensamblado: {e}")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
-    # Ejecutar test sencillo cuando se ejecute el archivo directamente
-    test_assembler()
+    main()

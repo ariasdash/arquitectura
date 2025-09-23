@@ -31,8 +31,5 @@
     "JR": ["jalr x0, {rs}, 0"],
     "JALR_REG": ["jalr x1, {rs}, 0"],
 
-    "RET": ["jalr x0, x1, 0"],
-
-    "CALL": ["auipc x1, %pcrel_hi({offset})", "jalr x1, %pcrel_lo({offset})(x1)"],
-    "TAIL": ["auipc x6, %pcrel_hi({offset})", "jalr x0, %pcrel_lo({offset})(x6)"]
+    "RET": ["jalr x0, x1, 0"]
 }
