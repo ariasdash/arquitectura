@@ -27,9 +27,9 @@
     "BLEU": ["bgeu {rt}, {rs}, {offset}"],
 
     "J": ["jal x0, {offset}"],
-    "JAL_OFF": ["jal x1, {offset}"],
+    "JAL": ["jal x1, {offset}"],
     "JR": ["jalr x0, {rs}, 0"],
-    "JALR_REG": ["jalr x1, {rs}, 0"],
+    "JALR": ["jalr x1, {rs}, 0"],
 
     "RET": ["jalr x0, x1, 0"]
 }

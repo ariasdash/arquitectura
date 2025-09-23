@@ -1,6 +1,9 @@
 from sly import Lexer, Parser  # Librería SLY para análisis léxico y sintáctico
 import json  # Para cargar archivos JSON con instrucciones
 import os    # Para manejo de rutas de archivos
+
+#directivas gpt 
+
 """
 Ensamblador RISC-V RV32I
 Este programa convierte código assembly RISC-V a código máquina.
@@ -121,13 +124,13 @@ def expand_pseudo_instruction(mnemonic, args):
             if len(str_args) >= 2:
                 instruction = instruction.replace("{rs}", f"x{str_args[1]}")
         
-        elif mnemonic in ["J", "JAL_OFF"]:
-            # Saltos incondicionales
+        elif mnemonic in ["J", "JAL"]:
+            # Saltos incondicionales con un solo operando (offset)
             if len(str_args) >= 1:
                 instruction = instruction.replace("{offset}", str_args[0])
         
-        elif mnemonic in ["JR", "JALR_REG"]:
-            # Saltos a registro
+        elif mnemonic in ["JR", "JALR"]:
+            # Saltos a registro con un solo operando (registro)
             if len(str_args) >= 1:
                 instruction = instruction.replace("{rs}", f"x{str_args[0]}")
         
@@ -226,6 +229,10 @@ class RV32ILexer(Lexer):
         self.lineno += t.value.count('\n')
         return t
 
+    @_(r'#.*')
+    def COMMENT(self, t):
+        pass  # Ignore comments
+
     def error(self, t):
         """
         Maneja errores léxicos cuando encuentra caracteres no reconocidos.
@@ -299,6 +306,24 @@ class AsmParser(Parser):
         Declaración de instrucción.
         """
         return p.instruction
+    
+    @_('DIRECTIVE operand_list')
+    def declaration(self, p):
+        directive = p.DIRECTIVE
+        # Extraer solo los valores numéricos o identificadores
+        values = []
+        for op in p.operand_list:
+            if op[0] == 'NUMBER':
+                values.append(op[1])
+            elif op[0] == 'IDENT':
+                values.append(op[1])  # puede ser etiqueta
+            else:
+                raise SyntaxError(f"Línea {p.lineno}: operando no válido en {directive}")
+        
+        if directive in (".word", ".half", ".byte"):
+            return ("DATA", directive, values)
+        else:
+            return ("DIRECTIVE", directive)
 
     @_('DIRECTIVE')
     def declaration(self, p):
@@ -580,50 +605,66 @@ class AsmParser(Parser):
 def first_pass(source_code):
     """
     Primera pasada del ensamblador: construir tabla de etiquetas y calcular direcciones.
-    
-    Args:
-        source_code (str): Código fuente assembly completo
-    
-    Returns:
-        tuple: (labels, instruction_addresses, final_pc)
-            - labels: diccionario {etiqueta: dirección}
-            - instruction_addresses: diccionario {línea: dirección}
-            - final_pc: dirección final del programa
-    
-    Esta pasada:
-    1. Escanea el código línea por línea
-    2. Identifica etiquetas y sus direcciones
-    3. Calcula la dirección de cada instrucción
-    4. Construye la tabla de símbolos para resolver saltos
+    Ahora maneja secciones .text y .data, con directivas .word, .half, .byte.
     """
     labels = {}                    # Tabla de etiquetas
     instruction_addresses = {}     # Direcciones de instrucciones por línea
-    PC = 0                        # Contador de programa (Program Counter)
+    data_addresses = {}            # Direcciones de datos por línea
     
-    # Procesar cada línea del código fuente
+    PC_text = 0x00000000           # Contador para instrucciones
+    PC_data = 0x10000000           # Contador para datos (ejemplo base)
+    section = ".text"              # Sección actual (default)
+    
     for lineno, raw in enumerate(source_code.splitlines(), start=1):
         line = raw.strip()
-        # Ignorar líneas vacías y comentarios
         if not line or line.startswith('#'):
             continue
 
         code = line
-        # Manejar etiquetas (formato: "etiqueta:")
+        # Manejar etiquetas
         if ':' in code:
             label, rest = code.split(':', 1)
             label = label.strip()
             if label:
-                if label in labels:
-                    print(f"ADVERTENCIA: Etiqueta '{label}' redefinida en línea {lineno}")
-                labels[label] = PC  # Asignar dirección actual a la etiqueta
+                if section == ".text":
+                    labels[label] = PC_text
+                elif section == ".data":
+                    labels[label] = PC_data
             code = rest.strip()
 
-        # Si hay una instrucción en la línea, reservar espacio (4 bytes)
-        if code:
-            instruction_addresses[lineno] = PC
-            PC += 4  # Cada instrucción RISC-V ocupa 4 bytes
+        if not code:
+            continue
 
-    return labels, instruction_addresses, PC
+        # Cambiar de sección
+        if code.startswith(".text"):
+            section = ".text"
+            continue
+        elif code.startswith(".data"):
+            section = ".data"
+            continue
+
+        # Manejar directivas de datos
+        if section == ".data":
+            if code.startswith(".word"):
+                valores = code.replace(".word", "").split(',')
+                PC_data += 4 * len(valores)
+                data_addresses[lineno] = PC_data
+            elif code.startswith(".half"):
+                valores = code.replace(".half", "").split(',')
+                PC_data += 2 * len(valores)
+                data_addresses[lineno] = PC_data
+            elif code.startswith(".byte"):
+                valores = code.replace(".byte", "").split(',')
+                PC_data += 1 * len(valores)
+                data_addresses[lineno] = PC_data
+            continue
+
+        # Manejar instrucciones
+        if section == ".text":
+            instruction_addresses[lineno] = PC_text
+            PC_text += 4
+
+    return labels, instruction_addresses, data_addresses, PC_text, PC_data
 
 # ========================
 #  SEGUNDA PASADA
@@ -774,29 +815,53 @@ def assemble_instruction(instr, labels, instruction_addresses):
 
     return word
 
-def second_pass(instructions, labels, instruction_addresses):
+def second_pass(instructions, labels, instruction_addresses, data_addresses):
     """
-    Segunda pasada del ensamblador: generar código máquina final.
+    Segunda pasada del ensamblador:
+    - Convierte instrucciones a código máquina.
+    - Convierte directivas de datos (.word, .half, .byte) a memoria de datos.
     
     Args:
-        instructions (list): Lista de instrucciones parseadas
-        labels (dict): Tabla de etiquetas
-        instruction_addresses (dict): Direcciones de instrucciones
+        instructions (list): Lista de instrucciones y directivas parseadas.
+        labels (dict): Tabla de etiquetas.
+        instruction_addresses (dict): Direcciones de instrucciones.
+        data_addresses (dict): Direcciones de datos.
     
     Returns:
-        list: Lista de palabras de código máquina (enteros de 32 bits)
-    
-    Esta función toma las instrucciones parseadas y las convierte a código máquina,
-    resolviendo todas las referencias a etiquetas y generando las palabras finales.
+        tuple: (machine_code, data_memory)
+            - machine_code: lista de palabras de 32 bits (instrucciones)
+            - data_memory: lista de valores de datos expandidos en memoria
     """
     machine_code = []
+    data_memory = []
+
     for instr in instructions:
-        if not instr:  # Saltar instrucciones nulas
+        if not instr:
             continue
+
+        # === MANEJO DE DIRECTIVAS DE DATOS ===
+        if instr[0] == "DATA":
+            directive, values = instr[1], instr[2]
+            if directive == ".word":
+                for v in values:
+                    data_memory.append(v & 0xFFFFFFFF)  # 32 bits
+            elif directive == ".half":
+                for v in values:
+                    data_memory.append(v & 0xFFFF)      # 16 bits
+            elif directive == ".byte":
+                for v in values:
+                    data_memory.append(v & 0xFF)        # 8 bits
+            else:
+                print(f"Advertencia: directiva {directive} no implementada")
+            continue  # saltar a la siguiente
+
+        # === MANEJO DE INSTRUCCIONES ===
         code_word = assemble_instruction(instr, labels, instruction_addresses)
         if code_word is not None:
             machine_code.append(code_word)
-    return machine_code
+
+    return machine_code, data_memory
+
 
 def expand_all_pseudo(instructions, lexer, parser):
     """
@@ -886,9 +951,14 @@ def main():
     try:
         # ===== PASO 3: PRIMERA PASADA =====
         print("\n=== PRIMERA PASADA ===")
-        labels, instruction_addresses, final_pc = first_pass(data)
+        labels, instruction_addresses, data_addresses, PC_text, PC_data = first_pass(data)
         print(f"Etiquetas encontradas: {labels}")
-        print(f"PC final: 0x{final_pc:08X} ({final_pc} bytes)")
+        print(f"Direcciones de instrucciones (texto): {instruction_addresses}")
+        print(f"Direcciones de datos: {data_addresses}")
+        print(f"PC final .text: 0x{PC_text:08X} ({PC_text} bytes)")
+        print(f"PC final .data: 0x{PC_data:08X} ({PC_data} bytes)")
+
+
         
         # ===== PASO 4: ANÁLISIS SINTÁCTICO =====
         print("\n=== PARSING ===")
@@ -912,8 +982,13 @@ def main():
         print(f"Total de instrucciones después de expansión: {len(final_instructions)}")
         
         # ===== PASO 6: SEGUNDA PASADA =====
+        # SEGUNDA PASADA
         print("\n=== SEGUNDA PASADA ===")
-        machine_code = second_pass(final_instructions, labels, instruction_addresses)
+        machine_code, data_memory = second_pass(final_instructions, labels, instruction_addresses, data_addresses)
+
+        print(f"Código máquina generado: {len(machine_code)} instrucciones")
+        print(f"Datos en memoria: {len(data_memory)} valores")
+
         
         if not machine_code:
             print("Error: No se generó código máquina")
@@ -923,6 +998,11 @@ def main():
         
         # ===== PASO 7: GENERAR ARCHIVOS DE SALIDA =====
         print("\n=== GENERANDO ARCHIVOS ===")
+
+        with open("output_data.hex", "w") as f:
+            for word in data_memory:
+                f.write(f"{word:08x}\n")
+        print("Archivo 'output_data.hex' generado")
         
         # Archivo hexadecimal (una palabra por línea)
         with open("output.hex", "w") as f:

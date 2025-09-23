@@ -1,4 +1,4 @@
-
+.text
     add x1, x2, x3
     sub x4, x5, x6
     sll x7, x8, x9
@@ -9,8 +9,8 @@
     sra x22, x23, x24
     or x25, x26, x27
     and x28, x29, x30
-
-    addi x1, x2, 10
+#blablabla
+    addi x1, x2, 10 #addi
     slli x3, x4, 5
     slti x5, x6, 15
     sltiu x7, x8, 20
@@ -31,7 +31,7 @@
 
     sb x1, 0(x2)
     sh x3, 4(x4)
-    sw x5, 8(x6)
+    sw x3, 4(x0)
 
 
     beq x1, x2, label1
