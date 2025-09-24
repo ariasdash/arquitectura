@@ -1,8 +1,7 @@
 from sly import Lexer, Parser  # Librería SLY para análisis léxico y sintáctico
 import json  # Para cargar archivos JSON con instrucciones
 import os    # Para manejo de rutas de archivos
-
-#directivas gpt 
+import sys   # Para argumentos de línea de comandos
 
 """
 RISC-V RV32I Assembler
@@ -63,21 +62,6 @@ MNEMONICS.update(PSEUDO_INSTRUCTIONS.keys())
 #   PSEUDOINSTRUCTIONS
 # ========================
 def expand_pseudo_instruction(mnemonic, args):
-    """
-    Expands a pseudoinstruction to one or more real instructions.
-    
-    Args:
-        mnemonic (str): Pseudoinstruction name (e.g., "LI", "MV")
-        args (list): List of pseudoinstruction arguments
-    
-    Returns:
-        list: List of expanded instructions in string format, or None if not a pseudoinstruction
-    
-    Examples:
-        LI x1, 100 -> ADDI x1, x0, 100
-        MV x1, x2  -> ADDI x1, x2, 0
-        BEQZ x1, label -> BEQ x1, x0, label
-    """
     # Verificar si es una pseudoinstrucción válida
     if mnemonic not in PSEUDO_INSTRUCTIONS:
         return None
@@ -427,11 +411,6 @@ class AsmParser(Parser):
         Returns:
             list: Internal representation of instruction with type, info and operands
         
-        Handles:
-        - Operand and range validation
-        - Classification by instruction type (R, I, S, B, U, J)
-        - Pseudoinstruction expansion
-        - Type-specific syntax verification
         """
         line_num = getattr(self, 'current_line', 0)
         
@@ -652,7 +631,7 @@ def first_pass(source_code):
     data_addresses = {}            # Data addresses by line
     
     PC_text = 0x00000000           # Counter for instructions
-    PC_data = 0x10000000           # Counter for data (example base)
+    PC_data = 0x00000000           # Counter for data (example base)
     section = ".text"              # Current section (default)
     
     for lineno, raw in enumerate(source_code.splitlines(), start=1):
@@ -732,12 +711,6 @@ def assemble_instruction(instr, labels, instruction_addresses):
     Returns:
         int: 32-bit word with machine code, or None if error
     
-    This function:
-    1. Identifies the instruction type (R, I, S, B, U, J)
-    2. Extracts necessary fields (opcode, funct3, funct7, etc.)
-    3. Encodes operands in the corresponding binary format
-    4. Resolves labels to calculate jump offsets
-    5. Assembles the final 32-bit word
     """
     instr_type = instr[0]
     
@@ -935,22 +908,7 @@ def second_pass(instructions, labels, instruction_addresses, data_addresses):
 
 
 def expand_all_pseudo(instructions, lexer, parser):
-    """
-    Expandir todas las pseudoinstrucciones a instrucciones reales.
-    
-    Args:
-        instructions (list): Lista de instrucciones parseadas (puede incluir pseudoinstrucciones)
-        lexer: Analizador léxico para re-parsear instrucciones expandidas
-        parser: Analizador sintáctico para re-parsear instrucciones expandidas
-    
-    Returns:
-        list: Lista de instrucciones con todas las pseudoinstrucciones expandidas
-    
-    Las pseudoinstrucciones son instrucciones "sintéticas" que se traducen a una o más
-    instrucciones reales. Por ejemplo:
-    - LI x1, 100 se expande a ADDI x1, x0, 100
-    - MV x1, x2 se expande a ADDI x1, x2, 0
-    """
+
     final_instructions = []
     if not instructions:
         return []
@@ -988,39 +946,54 @@ def main():
     """
     Main function of the RISC-V RV32I assembler.
     
-    Complete assembly process:
-    1. Read assembly code file
-    2. First pass: build label table
-    3. Lexical and syntactic analysis
-    4. Pseudoinstruction expansion
-    5. Second pass: generate machine code
-    6. Write output files (hex and binary)
-    7. Display results on console
+    Usage: python assembler.py program.asm program.hex program.bin
     
-    Output files:
-    - output.hex: machine code in hexadecimal format
-    - output.bin: machine code in binary format (text)
+    Complete assembly process:
+    1. Parse command line arguments
+    2. Read assembly code file
+    3. First pass: build label table
+    4. Lexical and syntactic analysis
+    5. Pseudoinstruction expansion
+    6. Second pass: generate machine code
+    7. Write output files (hex and binary)
+    8. Display results on console
     """
     print("=== RV32I Assembler ===")
     
-    # ===== STEP 1: READ INPUT FILE =====
+    # ===== STEP 1: PARSE COMMAND LINE ARGUMENTS =====
+    if len(sys.argv) != 4:
+        print("Usage: python assembler.py program.asm program.hex program.bin")
+        print("  program.asm - Input assembly file")
+        print("  program.hex - Output hexadecimal file")
+        print("  program.bin - Output binary file")
+        return
+    
+    input_file = sys.argv[1]    # Input .asm file
+    output_hex = sys.argv[2]    # Output .hex file
+    output_bin = sys.argv[3]    # Output .bin file
+    
+    print(f"Input file: {input_file}")
+    print(f"Output hex: {output_hex}")
+    print(f"Output bin: {output_bin}")
+    
+    # ===== STEP 2: READ INPUT FILE =====
     try:
-        with open('ejemplo.asm', 'r', encoding='utf-8') as f:
+        with open(input_file, 'r', encoding='utf-8') as f:
             data = f.read()
-        print("File 'ejemplo.asm' read successfully")
+        print(f"File '{input_file}' read successfully")
     except FileNotFoundError:
-        print("Error: File 'ejemplo.asm' not found")
+        print(f"Error: File '{input_file}' not found")
         return
     except Exception as e:
         print(f"Error reading file: {e}")
         return
 
-    # ===== STEP 2: INITIALIZE ANALYZERS =====
+    # ===== STEP 3: INITIALIZE ANALYZERS =====
     lexer = RV32ILexer()    # Lexical analyzer
     parser = AsmParser()    # Syntactic analyzer
     
     try:
-        # ===== STEP 3: FIRST PASS =====
+        # ===== STEP 4: FIRST PASS =====
         print("\n=== FIRST PASS ===")
         labels, instruction_addresses, data_addresses, PC_text, PC_data = first_pass(data)
         print(f"Labels found: {labels}")
@@ -1031,7 +1004,7 @@ def main():
 
 
         
-        # ===== STEP 4: SYNTACTIC ANALYSIS =====
+        # ===== STEP 5: SYNTACTIC ANALYSIS =====
         print("\n=== PARSING ===")
         try:
             result = parser.parse(lexer.tokenize(data))
@@ -1047,12 +1020,12 @@ def main():
             print(f"Unexpected error during parsing: {e}")
             return
         
-        # ===== STEP 5: PSEUDOINSTRUCTION EXPANSION =====
+        # ===== STEP 6: PSEUDOINSTRUCTION EXPANSION =====
         print("Expandiendo pseudoinstrucciones...")
         final_instructions = expand_all_pseudo(parsed_instructions, lexer, parser)
         print(f"Total de instrucciones después de expansión: {len(final_instructions)}")
         
-        # ===== STEP 6: SECOND PASS =====
+        # ===== STEP 7: SECOND PASS =====
         # SEGUNDA PASADA
         print("\n=== SEGUNDA PASADA ===")
         machine_code, data_memory = second_pass(final_instructions, labels, instruction_addresses, data_addresses)
@@ -1068,15 +1041,16 @@ def main():
         if not machine_code:
             print("Warning: Only data generated, no instructions")
         
-        # ===== STEP 7: GENERATE OUTPUT FILES =====
+        # ===== STEP 8: GENERATE OUTPUT FILES =====
         print("\n=== GENERATING FILES ===")
 
         # Data file (always generated if there's data)
         if data_memory:
-            with open("output_data.hex", "w") as f:
+            data_hex_file = output_hex.replace('.hex', '_data.hex')
+            with open(data_hex_file, "w") as f:
                 for word in data_memory:
                     f.write(f"{word:08x}\n")
-            print("File 'output_data.hex' generated")
+            print(f"File '{data_hex_file}' generated")
             
             # Archivo de mapa de memoria de datos
             with open("memory_map.txt", "w") as f:
@@ -1145,19 +1119,19 @@ def main():
         # Code files (only if there are instructions)
         if machine_code:
             # Hexadecimal file (one word per line)
-            with open("output.hex", "w") as f:
+            with open(output_hex, "w") as f:
                 for word in machine_code:
                     f.write(f"{word & 0xFFFFFFFF:08x}\n")
-            print("Archivo 'output.hex' generado")
+            print(f"File '{output_hex}' generated")
             
-            # Archivo binario en formato texto (32 bits por línea)
-            with open("output.bin", "w") as f:
+            # Binary file (32 bits per line in text format)
+            with open(output_bin, "w") as f:
                 for word in machine_code:
                     binary_str = f"{word & 0xFFFFFFFF:032b}"
                     f.write(binary_str + "\n")
-            print("Archivo 'output.bin' generado (formato texto binario)")
+            print(f"File '{output_bin}' generated")
         
-        # ===== STEP 8: DISPLAY RESULTS =====
+        # ===== STEP 9: DISPLAY RESULTS =====
         if machine_code:
             print("\n=== CÓDIGO MÁQUINA ===")
             for i, word in enumerate(machine_code):
