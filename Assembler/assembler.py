@@ -428,8 +428,19 @@ class AsmParser(Parser):
                     return ["PSEUDO", mnemonic, args]
             # Si tiene 2 o 3 operandos, continúa como instrucción real
         
-        # Manejar otras pseudoinstrucciones (excluyendo JALR con más de 1 operando)
-        if mnemonic in PSEUDO_INSTRUCTIONS and not (mnemonic == "JALR" and len(operands) > 1):
+        # Manejo especial para JAL que puede ser pseudoinstrucción (1 op) o instrucción real (2 ops)
+        if mnemonic == "JAL":
+            if len(operands) == 1:
+                # Es pseudoinstrucción: jal offset -> jal x1, offset
+                if operands[0][0] == 'IDENT':
+                    args = [operands[0][1]]  # La etiqueta
+                    return ["PSEUDO", mnemonic, args]
+            # Si tiene 2 operandos, continúa como instrucción real
+        
+        # Manejar otras pseudoinstrucciones (excluyendo JALR y JAL con más de 1 operando)
+        if (mnemonic in PSEUDO_INSTRUCTIONS and 
+            not (mnemonic == "JALR" and len(operands) > 1) and
+            not (mnemonic == "JAL" and len(operands) > 1)):
             args = []
             # Extraer y validar argumentos de la pseudoinstrucción
             for op in operands:
