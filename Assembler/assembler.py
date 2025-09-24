@@ -669,16 +669,16 @@ def first_pass(source_code):
         if section == ".data":
             if code.startswith(".word"):
                 valores = code.replace(".word", "").split(',')
-                PC_data += 4 * len(valores)
                 data_addresses[lineno] = PC_data
+                PC_data += 4 * len(valores)
             elif code.startswith(".half"):
                 valores = code.replace(".half", "").split(',')
-                PC_data += 2 * len(valores)
                 data_addresses[lineno] = PC_data
+                PC_data += 2 * len(valores)
             elif code.startswith(".byte"):
                 valores = code.replace(".byte", "").split(',')
-                PC_data += 1 * len(valores)
                 data_addresses[lineno] = PC_data
+                PC_data += 1 * len(valores)
             continue
 
         # Manejar instrucciones
@@ -1026,43 +1026,111 @@ def main():
         print(f"Datos en memoria: {len(data_memory)} valores")
 
         
-        if not machine_code:
-            print("Error: No se generó código máquina")
+        if not machine_code and not data_memory:
+            print("Error: No se generó código máquina ni datos")
             return
         
-        print(f"Código máquina generado: {len(machine_code)} instrucciones")
+        if not machine_code:
+            print("Advertencia: Solo se generaron datos, sin instrucciones")
         
         # ===== PASO 7: GENERAR ARCHIVOS DE SALIDA =====
         print("\n=== GENERANDO ARCHIVOS ===")
 
-        with open("output_data.hex", "w") as f:
-            for word in data_memory:
-                f.write(f"{word:08x}\n")
-        print("Archivo 'output_data.hex' generado")
+        # Archivo de datos (siempre generado si hay datos)
+        if data_memory:
+            with open("output_data.hex", "w") as f:
+                for word in data_memory:
+                    f.write(f"{word:08x}\n")
+            print("Archivo 'output_data.hex' generado")
+            
+            # Archivo de mapa de memoria de datos
+            with open("memory_map.txt", "w") as f:
+                f.write("=== MAPA DE MEMORIA .DATA ===\n")
+                f.write("-" * 80 + "\n")
+                
+                # Extraer información de tipos de datos del código fuente
+                data_info = {}
+                section = ".text"
+                for line in data.splitlines():
+                    line = line.strip()
+                    if not line or line.startswith('#'):
+                        continue
+                    
+                    # Cambiar de sección
+                    if line.startswith(".data"):
+                        section = ".data"
+                        continue
+                    elif line.startswith(".text"):
+                        section = ".text"
+                        continue
+                    
+                    if section == ".data" and ':' in line:
+                        parts = line.split(':', 1)
+                        if len(parts) == 2:
+                            label = parts[0].strip()
+                            directive_part = parts[1].strip()
+                            
+                            if directive_part.startswith('.word'):
+                                data_info[label] = '.word'
+                            elif directive_part.startswith('.half'):
+                                data_info[label] = '.half'
+                            elif directive_part.startswith('.byte'):
+                                data_info[label] = '.byte'
+                
+                # Crear lista de etiquetas ordenadas por dirección
+                data_labels = [(addr, label) for label, addr in labels.items() if addr >= 0x10000000]
+                data_labels.sort()  # Ordenar por dirección
+                
+                for i, (addr, label) in enumerate(data_labels):
+                    # Usar el índice directo en data_memory
+                    if i < len(data_memory):
+                        value = data_memory[i]
+                        data_type = data_info.get(label, '.word')  # Default a .word si no se encuentra
+                        
+                        f.write(f"{label:<15}\t0x{addr:08x}\t\t{data_type}\t\t0x{value:08x}\t\t{value}\n")
+                
+            print("Archivo 'memory_map.txt' generado")
         
-        # Archivo hexadecimal (una palabra por línea)
-        with open("output.hex", "w") as f:
-            for word in machine_code:
-                f.write(f"{word & 0xFFFFFFFF:08x}\n")
-        print("Archivo 'output.hex' generado")
-        
-        # Archivo binario en formato texto (32 bits por línea)
-        with open("output.bin", "w") as f:
-            for word in machine_code:
-                binary_str = f"{word & 0xFFFFFFFF:032b}"
-                f.write(binary_str + "\n")
-        print("Archivo 'output.bin' generado (formato texto binario)")
+        # Archivos de código (solo si hay instrucciones)
+        if machine_code:
+            # Archivo hexadecimal (una palabra por línea)
+            with open("output.hex", "w") as f:
+                for word in machine_code:
+                    f.write(f"{word & 0xFFFFFFFF:08x}\n")
+            print("Archivo 'output.hex' generado")
+            
+            # Archivo binario en formato texto (32 bits por línea)
+            with open("output.bin", "w") as f:
+                for word in machine_code:
+                    binary_str = f"{word & 0xFFFFFFFF:032b}"
+                    f.write(binary_str + "\n")
+            print("Archivo 'output.bin' generado (formato texto binario)")
         
         # ===== PASO 8: MOSTRAR RESULTADOS =====
-        print("\n=== CÓDIGO MÁQUINA ===")
-        for i, word in enumerate(machine_code):
-            pc_hex = f"{i*4:04x}"                    # Dirección en hex
-            hex_word = f"{word & 0xFFFFFFFF:08x}"    # Palabra en hex
-            bin_word = f"{word & 0xFFFFFFFF:032b}"   # Palabra en binario
-            print(f"0x{pc_hex}: 0x{hex_word} | {bin_word}")
+        if machine_code:
+            print("\n=== CÓDIGO MÁQUINA ===")
+            for i, word in enumerate(machine_code):
+                pc_hex = f"{i*4:04x}"                    # Dirección en hex
+                hex_word = f"{word & 0xFFFFFFFF:08x}"    # Palabra en hex
+                bin_word = f"{word & 0xFFFFFFFF:032b}"   # Palabra en binario
+                print(f"0x{pc_hex}: 0x{hex_word} | {bin_word}")
         
-        print(f"\nEnsamblado completado exitosamente!")
-        print(f"Total: {len(machine_code)} instrucciones ({len(machine_code)*4} bytes)")
+        if data_memory:
+            print("\n=== DATOS EN MEMORIA ===")
+            base_addr = 0x10000000  # Dirección base de .data
+            for i, word in enumerate(data_memory):
+                addr_hex = f"{base_addr + i:08x}"
+                hex_word = f"{word:08x}"
+                print(f"0x{addr_hex}: 0x{hex_word}")
+        
+        if machine_code:
+            print(f"\nEnsamblado completado exitosamente!")
+            print(f"Total: {len(machine_code)} instrucciones ({len(machine_code)*4} bytes)")
+        else:
+            print(f"\nProcesamiento de datos completado exitosamente!")
+        
+        if data_memory:
+            print(f"Datos: {len(data_memory)} valores en memoria")
         
     except Exception as e:
         print(f"Error durante el ensamblado: {e}")
