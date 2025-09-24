@@ -740,15 +740,25 @@ def assemble_instruction(instr, labels, instruction_addresses):
         rd, rs1, imm = instr[2], instr[3], instr[4]
         funct3 = int(info[1], 2)
         
-        # Verificar rango válido para inmediatos tipo I
-        if not (-2048 <= imm <= 2047):
-            raise ValueError(f"Línea {line_num}: Inmediato {imm} fuera de rango para tipo I")
-        
-        # Manejar valores negativos en complemento a 2 para 12 bits
-        if imm < 0:
-            imm_12bit = (imm + 4096) & 0xFFF
+        # Manejo especial para instrucciones de shift (SLLI, SRLI, SRAI)
+        if len(info) > 2 and info[2] in ["0000000", "0100000"]:
+            # Instrucciones de shift: formato especial con funct7 + shamt
+            funct7 = int(info[2], 2)
+            shamt = imm & 0x1F  # Solo 5 bits para shift amount (0-31)
+            if not (0 <= imm <= 31):
+                raise ValueError(f"Línea {line_num}: Shift amount {imm} debe estar entre 0-31")
+            imm_12bit = (funct7 << 5) | shamt
         else:
-            imm_12bit = imm & 0xFFF
+            # Instrucciones I normales
+            # Verificar rango válido para inmediatos tipo I
+            if not (-2048 <= imm <= 2047):
+                raise ValueError(f"Línea {line_num}: Inmediato {imm} fuera de rango para tipo I")
+            
+            # Manejar valores negativos en complemento a 2 para 12 bits
+            if imm < 0:
+                imm_12bit = (imm + 4096) & 0xFFF
+            else:
+                imm_12bit = imm & 0xFFF
         
         word = (imm_12bit << 20) | (rs1 << 15) | (funct3 << 12) | (rd << 7) | opcode
 
