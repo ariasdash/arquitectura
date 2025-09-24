@@ -417,8 +417,19 @@ class AsmParser(Parser):
         """
         line_num = getattr(self, 'current_line', 0)
         
-        # Manejar pseudoinstrucciones
-        if mnemonic in PSEUDO_INSTRUCTIONS:
+        # Manejo especial para JALR que puede ser pseudoinstrucción (1 op) o instrucción real (2-3 ops)
+        if mnemonic == "JALR":
+            if len(operands) == 1:
+                # Es pseudoinstrucción: jalr rs -> jalr x1, rs, 0
+                if operands[0][0] == 'REG':
+                    if not (0 <= operands[0][1] <= 31):
+                        raise ValueError(f"Línea {line_num}: Registro x{operands[0][1]} no válido (rango: x0-x31)")
+                    args = [operands[0][1]]
+                    return ["PSEUDO", mnemonic, args]
+            # Si tiene 2 o 3 operandos, continúa como instrucción real
+        
+        # Manejar otras pseudoinstrucciones (excluyendo JALR con más de 1 operando)
+        if mnemonic in PSEUDO_INSTRUCTIONS and not (mnemonic == "JALR" and len(operands) > 1):
             args = []
             # Extraer y validar argumentos de la pseudoinstrucción
             for op in operands:
