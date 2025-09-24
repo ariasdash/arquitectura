@@ -161,7 +161,7 @@ class RV32ILexer(Lexer):
     Reconoce tokens como instrucciones, registros, números, etc.
     """
     # Definir tipos de tokens que reconoce el lexer
-    tokens = { 'INSTR', 'REG', 'NUMBER', 'COMMA', 'LPAREN', 'RPAREN', 'IDENT', 'COLON', 'DIRECTIVE', 'NEWLINE' }
+    tokens = { 'INSTR', 'REG', 'NUMBER', 'COMMA', 'LPAREN', 'RPAREN', 'IDENT', 'COLON', 'DIRECTIVE', 'NEWLINE', 'STRING' }
     ignore = ' \t'  # Ignorar espacios y tabs
 
     # Tokens simples (un solo carácter)
@@ -190,6 +190,15 @@ class RV32ILexer(Lexer):
             t.value = int(t.value, 16)  # Hexadecimal
         else:
             t.value = int(t.value)      # Decimal
+        return t
+
+    @_(r'"[^"]*"')
+    def STRING(self, t):
+        """
+        Reconoce strings entre comillas dobles.
+        Remueve las comillas y deja solo el contenido.
+        """
+        t.value = t.value[1:-1]  # Remover comillas
         return t
 
     @_(r'x(?:[0-9]|[1-2][0-9]|3[0-1])\b|(?:zero|ra|sp|gp|tp|fp|t[0-6]|s(?:[0-9]|1[0-1])|a[0-7])\b')
@@ -310,17 +319,19 @@ class AsmParser(Parser):
     @_('DIRECTIVE operand_list')
     def declaration(self, p):
         directive = p.DIRECTIVE
-        # Extraer solo los valores numéricos o identificadores
+        # Extraer solo los valores numéricos, identificadores o strings
         values = []
         for op in p.operand_list:
             if op[0] == 'NUMBER':
                 values.append(op[1])
             elif op[0] == 'IDENT':
                 values.append(op[1])  # puede ser etiqueta
+            elif op[0] == 'STRING':
+                values.append(op[1])  # string sin comillas
             else:
                 raise SyntaxError(f"Línea {p.lineno}: operando no válido en {directive}")
         
-        if directive in (".word", ".half", ".byte"):
+        if directive in (".word", ".half", ".byte", ".string"):
             return ("DATA", directive, values)
         else:
             return ("DIRECTIVE", directive)
@@ -397,6 +408,13 @@ class AsmParser(Parser):
         Operando identificador: etiqueta para saltos.
         """
         return ('IDENT', p.IDENT)
+
+    @_('STRING')
+    def operand(self, p):
+        """
+        Operando string: texto entre comillas para directiva .string
+        """
+        return ('STRING', p.STRING)
 
     def build_from_mnemonic(self, mnemonic, operands):
         """
@@ -627,7 +645,7 @@ class AsmParser(Parser):
 def first_pass(source_code):
     """
     Primera pasada del ensamblador: construir tabla de etiquetas y calcular direcciones.
-    Ahora maneja secciones .text y .data, con directivas .word, .half, .byte.
+    Ahora maneja secciones .text y .data, con directivas .word, .half, .byte, .string.
     """
     labels = {}                    # Tabla de etiquetas
     instruction_addresses = {}     # Direcciones de instrucciones por línea
@@ -679,6 +697,17 @@ def first_pass(source_code):
                 valores = code.replace(".byte", "").split(',')
                 data_addresses[lineno] = PC_data
                 PC_data += 1 * len(valores)
+            elif code.startswith(".string"):
+                # Extraer el string (debe estar entre comillas)
+                string_part = code.replace(".string", "").strip()
+                if string_part.startswith('"') and string_part.endswith('"'):
+                    string_content = string_part[1:-1]  # Remover comillas
+                    # Calcular bytes: longitud del string + 1 para el terminador null
+                    string_bytes = len(string_content) + 1
+                    data_addresses[lineno] = PC_data
+                    PC_data += string_bytes
+                else:
+                    raise SyntaxError(f"Línea {lineno}: String debe estar entre comillas dobles")
             continue
 
         # Manejar instrucciones
@@ -855,7 +884,7 @@ def second_pass(instructions, labels, instruction_addresses, data_addresses):
     """
     Segunda pasada del ensamblador:
     - Convierte instrucciones a código máquina.
-    - Convierte directivas de datos (.word, .half, .byte) a memoria de datos.
+    - Convierte directivas de datos (.word, .half, .byte, .string) a memoria de datos.
     
     Args:
         instructions (list): Lista de instrucciones y directivas parseadas.
@@ -887,6 +916,12 @@ def second_pass(instructions, labels, instruction_addresses, data_addresses):
             elif directive == ".byte":
                 for v in values:
                     data_memory.append(v & 0xFF)        # 8 bits
+            elif directive == ".string":
+                # Para strings, values[0] es el string sin comillas
+                string_content = values[0]
+                for char in string_content:
+                    data_memory.append(ord(char))       # Código ASCII de cada carácter
+                data_memory.append(0)                   # Terminador null
             else:
                 print(f"Advertencia: directiva {directive} no implementada")
             continue  # saltar a la siguiente
@@ -970,7 +1005,7 @@ def main():
     
     # ===== PASO 1: LEER ARCHIVO DE ENTRADA =====
     try:
-        with open('arquitectura/Assembler/ejemplo.asm', 'r', encoding='utf-8') as f:
+        with open('ejemplo.asm', 'r', encoding='utf-8') as f:
             data = f.read()
         print("Archivo 'ejemplo.asm' leído correctamente")
     except FileNotFoundError:
@@ -1076,18 +1111,34 @@ def main():
                                 data_info[label] = '.half'
                             elif directive_part.startswith('.byte'):
                                 data_info[label] = '.byte'
+                            elif directive_part.startswith('.string'):
+                                data_info[label] = '.string'
                 
                 # Crear lista de etiquetas ordenadas por dirección
                 data_labels = [(addr, label) for label, addr in labels.items() if addr >= 0x10000000]
                 data_labels.sort()  # Ordenar por dirección
                 
-                for i, (addr, label) in enumerate(data_labels):
-                    # Usar el índice directo en data_memory
-                    if i < len(data_memory):
-                        value = data_memory[i]
+                memory_index = 0  # Índice que va recorriendo data_memory
+                for addr, label in data_labels:
+                    if memory_index < len(data_memory):
                         data_type = data_info.get(label, '.word')  # Default a .word si no se encuentra
                         
-                        f.write(f"{label:<15}\t0x{addr:08x}\t\t{data_type}\t\t0x{value:08x}\t\t{value}\n")
+                        if data_type == '.string':
+                            # Para strings, mostrar los caracteres como string readable
+                            string_chars = []
+                            j = memory_index
+                            while j < len(data_memory) and data_memory[j] != 0:
+                                string_chars.append(chr(data_memory[j]))
+                                j += 1
+                            string_content = ''.join(string_chars)
+                            string_length = len(string_chars) + 1  # +1 para el terminador null
+                            f.write(f"{label:<15}\t0x{addr:08x}\t\t{data_type}\t\t\"{string_content}\"\\0\t\t[{string_length} bytes]\n")
+                            memory_index += string_length  # Avanzar el índice por todos los bytes del string
+                        else:
+                            # Para otros tipos, mostrar como antes
+                            value = data_memory[memory_index]
+                            f.write(f"{label:<15}\t0x{addr:08x}\t\t{data_type}\t\t0x{value:08x}\t\t{value}\n")
+                            memory_index += 1  # Avanzar solo 1 posición para tipos simples
                 
             print("Archivo 'memory_map.txt' generado")
         
