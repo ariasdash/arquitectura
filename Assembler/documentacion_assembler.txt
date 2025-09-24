@@ -1,0 +1,567 @@
+================================================================================
+                    DOCUMENTACIÓN DEL ENSAMBLADOR RISC-V RV32I
+================================================================================
+
+DESCRIPCIÓN GENERAL:
+Este programa es un ensamblador completo para la arquitectura RISC-V RV32I que 
+convierte código assembly legible a código máquina ejecutable por el procesador.
+
+CARACTERÍSTICAS PRINCIPALES:
+- Soporte completo para la ISA RV32I
+- Manejo de pseudoinstrucciones
+- Secciones .text y .data
+- Directivas .word, .half, .byte y .string
+- Generación de mapa de memoria detallado
+- Soporte para archivos solo con datos
+- Validación exhaustiva de sintaxis y rangos
+
+================================================================================
+                               ESTRUCTURA GENERAL
+================================================================================
+
+El ensamblador está organizado en las siguientes secciones principales:
+
+1. CARGA DE DEFINICIONES ISA (Líneas 30-50)
+2. MANEJO DE PSEUDOINSTRUCCIONES (Líneas 52-140)
+3. ANÁLISIS LÉXICO - LEXER (Líneas 160-240)
+4. ANÁLISIS SINTÁCTICO - PARSER (Líneas 250-420)
+5. PRIMERA PASADA (Líneas 630-720)
+6. SEGUNDA PASADA (Líneas 730-920)
+7. FUNCIÓN PRINCIPAL (Líneas 990-1200)
+
+================================================================================
+                            FUNCIONES PRINCIPALES
+================================================================================
+
+1. FUNCIÓN: expand_pseudo_instruction(mnemonic, args)
+   UBICACIÓN: Líneas 52-140
+   PROPÓSITO: Expandir pseudoinstrucciones a instrucciones reales
+   
+   QUÉ HACE:
+   - Recibe una pseudoinstrucción (ej: "LI", "MV", "BEQZ")
+   - La convierte en una o más instrucciones reales de RISC-V
+   - Maneja el mapeo de argumentos según el tipo de pseudoinstrucción
+   
+   EJEMPLOS:
+   - LI x1, 100  →  ADDI x1, x0, 100
+   - MV x1, x2   →  ADDI x1, x2, 0
+   - BEQZ x1, label → BEQ x1, x0, label
+   
+   CÓMO FUNCIONA:
+   - Busca la pseudoinstrucción en el diccionario PSEUDO_INSTRUCTIONS
+   - Obtiene las plantillas de expansión
+   - Reemplaza los marcadores ({rd}, {rs}, {imm}, etc.) con los argumentos reales
+   - Retorna lista de instrucciones expandidas
+
+--------------------------------------------------------------------------------
+
+2. CLASE: RV32ILexer
+   UBICACIÓN: Líneas 160-240
+   PROPÓSITO: Análisis léxico (tokenización) del código assembly
+   
+   QUÉ HACE:
+   - Convierte el texto assembly en tokens reconocibles
+   - Identifica instrucciones, registros, números, símbolos y strings
+   - Maneja diferentes formatos de números (decimal, hexadecimal)
+   - Reconoce nombres de registros simbólicos (ra, sp, t0, etc.)
+   - Procesa strings entre comillas dobles
+   
+   TOKENS QUE RECONOCE:
+   - INSTR: Instrucciones (ADD, LW, BEQ, etc.)
+   - REG: Registros (x0-x31, ra, sp, t0-t6, s0-s11, a0-a7)
+   - NUMBER: Números (123, -45, 0xFF)
+   - STRING: Cadenas de texto entre comillas ("texto")
+   - COMMA: Separador de operandos (,)
+   - LPAREN/RPAREN: Paréntesis para direcciones ( )
+   - IDENT: Identificadores/etiquetas
+   - COLON: Dos puntos para etiquetas (:)
+   - DIRECTIVE: Directivas (.data, .text, .word, .half, .byte, .string)
+   - NEWLINE: Saltos de línea
+   
+   MÉTODOS IMPORTANTES:
+   - NUMBER(): Convierte strings a enteros (decimal/hex)
+   - REG(): Convierte nombres de registros a números
+   - IDENT(): Distingue entre instrucciones y etiquetas
+
+--------------------------------------------------------------------------------
+
+3. CLASE: AsmParser
+   UBICACIÓN: Líneas 250-420
+   PROPÓSITO: Análisis sintáctico del código assembly
+   
+   QUÉ HACE:
+   - Construye un árbol de sintaxis abstracta (AST)
+   - Valida la sintaxis de instrucciones y operandos
+   - Clasifica instrucciones por tipo (R, I, S, B, U, J)
+   - Maneja diferentes formatos de operandos
+   - Procesa directivas de datos (.word, .half, .byte, .string)
+   - Maneja strings con comillas dobles
+   
+   REGLAS SINTÁCTICAS PRINCIPALES:
+   - program: Lista de declaraciones
+   - statement: Instrucción, etiqueta o línea vacía
+   - instruction: Mnemónico con operandos
+   - operand: Registro, número, etiqueta o dirección memoria
+   
+   MÉTODO CLAVE: build_from_mnemonic()
+   - Clasifica instrucciones según su tipo
+   - Valida número y tipo de operandos
+   - Verifica rangos de inmediatos y registros
+   - Retorna representación interna de la instrucción
+
+--------------------------------------------------------------------------------
+
+4. FUNCIÓN: first_pass(source_code)
+   UBICACIÓN: Líneas 630-720
+   PROPÓSITO: Primera pasada del ensamblador
+   
+   QUÉ HACE:
+   - Escanea todo el código fuente línea por línea
+   - Construye tabla de etiquetas con sus direcciones
+   - Calcula direcciones de todas las instrucciones
+   - Maneja secciones .text y .data por separado
+   - Calcula espacio de memoria para directivas de datos
+   - Determina el tamaño total del programa
+   
+   PROCESO:
+   1. Inicializa PC_text (instrucciones) en 0x00000000
+   2. Inicializa PC_data (datos) en 0x10000000
+   3. Por cada línea:
+      - Identifica sección actual (.text o .data)
+      - Identifica etiquetas (formato "etiqueta:")
+      - Asigna dirección actual a la etiqueta según la sección
+      - Si hay instrucción, incrementa PC_text en 4 bytes
+      - Si hay directiva de datos, incrementa PC_data según el tipo:
+        * .word: 4 bytes por valor
+        * .half: 2 bytes por valor
+        * .byte: 1 byte por valor
+        * .string: longitud del string + 1 (terminador null)
+   4. Retorna tabla de etiquetas y direcciones
+   
+   SALIDA:
+   - labels: diccionario {etiqueta: dirección}
+   - instruction_addresses: diccionario {línea: dirección}
+   - data_addresses: diccionario {línea: dirección}
+   - PC_text: tamaño total de instrucciones
+   - PC_data: tamaño total de datos
+
+--------------------------------------------------------------------------------
+
+5. FUNCIÓN: assemble_instruction(instr, labels, instruction_addresses)
+   UBICACIÓN: Líneas 730-880
+   PROPÓSITO: Convierte instrucción parseada a código máquina de 32 bits
+   
+   QUÉ HACE:
+   - Toma instrucción parseada y la convierte a palabra binaria
+   - Resuelve referencias a etiquetas
+   - Calcula offsets para saltos
+   - Ensambla los campos según el formato de cada tipo
+   
+   TIPOS DE INSTRUCCIÓN:
+   
+   TIPO R (Registro-Registro-Registro):
+   - Formato: op rd, rs1, rs2
+   - Campos: funct7[31:25] | rs2[24:20] | rs1[19:15] | funct3[14:12] | rd[11:7] | opcode[6:0]
+   - Ejemplos: ADD, SUB, AND, OR, XOR
+   
+   TIPO I (Inmediato):
+   - Formato: op rd, rs1, imm
+   - Campos: imm[31:20] | rs1[19:15] | funct3[14:12] | rd[11:7] | opcode[6:0]
+   - Ejemplos: ADDI, LW, JALR
+   
+   TIPO S (Store):
+   - Formato: op rs2, offset(rs1)
+   - Campos: imm[31:25] | rs2[24:20] | rs1[19:15] | funct3[14:12] | imm[11:7] | opcode[6:0]
+   - Ejemplos: SW, SH, SB
+   
+   TIPO B (Branch):
+   - Formato: op rs1, rs2, label
+   - Campos: imm[12|10:5] | rs2[24:20] | rs1[19:15] | funct3[14:12] | imm[4:1|11] | opcode[6:0]
+   - Ejemplos: BEQ, BNE, BLT, BGE
+   
+   TIPO U (Upper Immediate):
+   - Formato: op rd, imm
+   - Campos: imm[31:12] | rd[11:7] | opcode[6:0]
+   - Ejemplos: LUI, AUIPC
+   
+   TIPO J (Jump):
+   - Formato: op rd, label
+   - Campos: imm[20|10:1|11|19:12] | rd[11:7] | opcode[6:0]
+   - Ejemplos: JAL
+
+--------------------------------------------------------------------------------
+
+6. FUNCIÓN: second_pass(instructions, labels, instruction_addresses, data_addresses)
+   UBICACIÓN: Líneas 880-920
+   PROPÓSITO: Segunda pasada del ensamblador
+   
+   QUÉ HACE:
+   - Convierte todas las instrucciones parseadas a código máquina
+   - Procesa directivas de datos a memoria de datos
+   - Utiliza la tabla de etiquetas para resolver saltos
+   - Genera lista final de palabras de 32 bits y datos
+   
+   PROCESO:
+   - Itera sobre cada instrucción y directiva parseada
+   - Para instrucciones: llama a assemble_instruction()
+   - Para directivas de datos:
+     * .word: almacena valores de 32 bits
+     * .half: almacena valores de 16 bits
+     * .byte: almacena valores de 8 bits
+     * .string: convierte caracteres a códigos ASCII + terminador null
+   - Acumula las palabras de código máquina y datos
+   - Retorna tupla (machine_code, data_memory)
+
+--------------------------------------------------------------------------------
+
+7. FUNCIÓN: expand_all_pseudo(instructions, lexer, parser)
+   UBICACIÓN: Líneas 730-770
+   PROPÓSITO: Expandir todas las pseudoinstrucciones del programa
+   
+   QUÉ HACE:
+   - Busca instrucciones marcadas como "PSEUDO"
+   - Las expande usando expand_pseudo_instruction()
+   - Re-parsea las instrucciones expandidas
+   - Mantiene los números de línea originales
+   
+   PROCESO:
+   1. Recorre lista de instrucciones
+   2. Si encuentra pseudoinstrucción:
+      - La expande a instrucciones reales
+      - Re-parsea cada instrucción expandida
+      - Conserva número de línea original
+   3. Si es instrucción normal, la mantiene
+   4. Retorna lista sin pseudoinstrucciones
+
+--------------------------------------------------------------------------------
+
+8. FUNCIÓN: main()
+   UBICACIÓN: Líneas 990-1200
+   PROPÓSITO: Función principal que coordina todo el proceso
+   
+   PROCESO COMPLETO:
+   
+   PASO 1: Lectura de archivo
+   - Lee archivo 'ejemplo.asm'
+   - Maneja errores de archivo no encontrado
+   
+   PASO 2: Inicialización
+   - Crea instancias de lexer y parser
+   
+   PASO 3: Primera pasada
+   - Construye tabla de etiquetas
+   - Calcula direcciones de instrucciones
+   
+   PASO 4: Análisis sintáctico
+   - Tokeniza y parsea el código
+   - Valida sintaxis y operandos
+   - Maneja errores de sintaxis
+   
+   PASO 5: Expansión de pseudoinstrucciones
+   - Convierte pseudoinstrucciones a instrucciones reales
+   
+   PASO 6: Segunda pasada
+   - Genera código máquina final
+   - Resuelve todas las referencias
+   
+   PASO 7: Generación de archivos
+   - output.hex: formato hexadecimal (solo si hay instrucciones)
+   - output.bin: formato binario texto (solo si hay instrucciones)
+   - output_data.hex: datos en hexadecimal (solo si hay datos)
+   - memory_map.txt: mapa detallado de memoria con direcciones y tipos
+   
+   PASO 8: Mostrar resultados
+   - Imprime código máquina en consola (si hay)
+   - Imprime datos en memoria (si hay)
+   - Muestra estadísticas del ensamblado
+   - Maneja casos de archivos solo con datos
+
+================================================================================
+                              ARCHIVOS DE DATOS
+================================================================================
+
+El ensamblador utiliza varios archivos JSON para definir la ISA:
+
+1. Rtype.json: Instrucciones tipo R (registro-registro-registro)
+2. Itype.json: Instrucciones tipo I (inmediato y loads)
+3. Stype.json: Instrucciones tipo S (stores)
+4. Btype.json: Instrucciones tipo B (branches/saltos condicionales)
+5. Utype.json: Instrucciones tipo U (upper immediate)
+6. Jtype.json: Instrucciones tipo J (jumps/saltos incondicionales)
+7. pseudo.json: Definiciones de pseudoinstrucciones
+8. REGnames.json: Mapeo de nombres simbólicos de registros
+
+FORMATO DE ARCHIVOS JSON:
+Cada archivo contiene un diccionario donde:
+- Clave: mnemónico de la instrucción
+- Valor: lista con [opcode, funct3, funct7/immediate] en binario
+
+================================================================================
+                                VALIDACIONES
+================================================================================
+
+El ensamblador realiza múltiples validaciones:
+
+1. REGISTROS:
+   - Rango válido: x0-x31
+   - Nombres simbólicos válidos
+
+2. INMEDIATOS:
+   - Tipo I: -2048 a 2047 (12 bits con signo)
+   - Tipo S: -2048 a 2047 (12 bits con signo)
+   - Tipo B: -4096 a 4094 (13 bits, múltiplo de 2)
+   - Tipo U: -524288 a 524287 (20 bits con signo)
+   - Tipo J: -1048576 a 1048574 (21 bits, múltiplo de 2)
+
+3. SINTAXIS:
+   - Número correcto de operandos por instrucción
+   - Tipos correctos de operandos
+   - Referencias válidas a etiquetas
+
+4. SEMÁNTICA:
+   - Etiquetas definidas antes de uso
+   - Rangos de salto válidos
+   - Alineación correcta para saltos
+
+================================================================================
+                               MANEJO DE ERRORES
+================================================================================
+
+El ensamblador maneja diferentes tipos de errores:
+
+1. ERRORES LÉXICOS:
+   - Caracteres no reconocidos
+   - Formato inválido de números
+
+2. ERRORES SINTÁCTICOS:
+   - Sintaxis incorrecta de instrucciones
+   - Número incorrecto de operandos
+   - Tipos incorrectos de operandos
+
+3. ERRORES SEMÁNTICOS:
+   - Registros fuera de rango
+   - Inmediatos fuera de rango
+   - Etiquetas no definidas
+   - Saltos fuera de rango
+
+4. ERRORES DE ARCHIVO:
+   - Archivo no encontrado
+   - Problemas de codificación
+
+Cada error incluye el número de línea donde ocurrió para facilitar la depuración.
+
+================================================================================
+                                ARCHIVOS DE SALIDA
+================================================================================
+
+1. output.hex:
+   - Formato: Un valor hexadecimal de 8 dígitos por línea
+   - Representa cada instrucción como palabra de 32 bits
+   - Solo se genera si hay instrucciones en el programa
+   - Útil para cargar en memoria o simuladores
+
+2. output.bin:
+   - Formato: Una cadena binaria de 32 dígitos por línea
+   - Representa cada instrucción en binario puro
+   - Solo se genera si hay instrucciones en el programa
+   - Útil para análisis bit a bit
+
+3. output_data.hex:
+   - Formato: Un valor hexadecimal por línea
+   - Representa cada dato (byte, half, word) o carácter de string
+   - Solo se genera si hay directivas de datos
+   - Útil para inicializar memoria de datos
+
+4. memory_map.txt:
+   - Formato: Tabla detallada con columnas: Etiqueta, Dirección, Tipo, Valor
+   - Muestra la distribución completa de memoria de datos
+   - Incluye información específica para cada tipo de dato:
+     * .word, .half, .byte: valor en hex y decimal
+     * .string: contenido del string y cantidad de bytes
+   - Solo se genera si hay directivas de datos
+   - Útil para debugging y verificación de layout de memoria
+
+FORMATO DE SALIDA EN CONSOLA:
+Dirección: Hex | Binario
+0x0000: 0x12345678 | 00010010001101000101011001111000
+
+================================================================================
+                              DIRECTIVAS DE DATOS
+================================================================================
+
+El ensamblador soporta directivas para definir datos en la sección .data:
+
+1. .word etiqueta, valor
+   - Define una palabra de 32 bits (4 bytes)
+   - Valores válidos: -2147483648 a 2147483647
+   - Alineación: palabra (4 bytes)
+   - Ejemplo: num1: .word 12345
+
+2. .half etiqueta, valor  
+   - Define media palabra de 16 bits (2 bytes)
+   - Valores válidos: -32768 a 32767
+   - Alineación: media palabra (2 bytes)
+   - Ejemplo: num2: .half 1234
+
+3. .byte etiqueta, valor
+   - Define un byte de 8 bits (1 byte)
+   - Valores válidos: -128 a 127 (o 0 a 255 sin signo)
+   - Alineación: byte (1 byte)
+   - Ejemplo: num3: .byte 42
+
+4. .string etiqueta, "texto"
+   - Define una cadena de caracteres terminada en null
+   - Cada carácter ocupa 1 byte
+   - Se agrega automáticamente terminador null (0x00)
+   - El texto debe estar entre comillas dobles
+   - Ejemplo: msg: .string "Hello World"
+
+SECCIONES DE MEMORIA:
+- .text: Código ejecutable (direcciones desde 0x00000000)
+- .data: Datos inicializados (direcciones desde 0x10000000)
+
+LAYOUT DE MEMORIA .DATA:
+- Las etiquetas se colocan secuencialmente según su orden de definición
+- Cada tipo de dato ocupa el espacio correspondiente a su tamaño
+- Los strings ocupan longitud del texto + 1 byte (terminador null)
+
+================================================================================
+                                  PSEUDOINSTRUCCIONES
+================================================================================
+
+PSEUDOINSTRUCCIONES SOPORTADAS:
+
+1. LI rd, imm (Load Immediate)
+   - Expansión: ADDI rd, x0, imm
+   - Propósito: Cargar constante en registro
+
+2. MV rd, rs (Move)
+   - Expansión: ADDI rd, rs, 0
+   - Propósito: Copiar registro
+
+3. BEQZ rs, label (Branch if Equal Zero)
+   - Expansión: BEQ rs, x0, label
+   - Propósito: Saltar si registro es cero
+
+4. BNEZ rs, label (Branch if Not Equal Zero)
+   - Expansión: BNE rs, x0, label
+   - Propósito: Saltar si registro no es cero
+
+5. J label (Jump)
+   - Expansión: JAL x0, label
+   - Propósito: Salto incondicional
+
+6. JR rs (Jump Register)
+   - Expansión: JALR x0, rs, 0
+   - Propósito: Saltar a dirección en registro
+
+Y muchas más definidas en pseudo.json
+
+================================================================================
+                                EJEMPLO DE USO
+================================================================================
+
+CÓDIGO ASSEMBLY CON INSTRUCCIONES (ejemplo.asm):
+```
+.text
+main:
+    li x1, 10        # Cargar 10 en x1 (pseudoinstrucción)
+    li x2, 20        # Cargar 20 en x2 (pseudoinstrucción)
+    add x3, x1, x2   # x3 = x1 + x2 (instrucción real)
+    beqz x3, end     # Si x3 es 0, saltar a end (pseudoinstrucción)
+    addi x3, x3, 1   # x3 = x3 + 1 (instrucción real)
+end:
+    nop              # No operation (pseudoinstrucción)
+```
+
+CÓDIGO ASSEMBLY CON DATOS:
+```
+.data
+num1:    .word 12345     # Palabra de 32 bits
+message: .string "Hi"    # String con terminador null  
+num2:    .half 1234      # Media palabra de 16 bits
+flag:    .byte 1         # Byte de 8 bits
+```
+
+CÓDIGO ASSEMBLY MIXTO:
+```
+.data
+counter: .word 0
+msg:     .string "Counter: "
+
+.text
+main:
+    lw x1, counter      # Cargar valor del contador
+    addi x1, x1, 1      # Incrementar contador
+    sw x1, counter      # Guardar nuevo valor
+    beqz x1, end        # Si es cero, terminar
+end:
+    nop
+```
+
+PROCESO COMPLETO:
+1. Primera pasada: 
+   - .data: counter=0x10000000, msg=0x10000004
+   - .text: main=0x00000000, end=0x00000010
+2. Expansión: li → addi, beqz → beq, nop → addi x0,x0,0
+3. Segunda pasada: Genera código máquina e inicializa datos
+4. Salida: 
+   - Instrucciones: 5 instrucciones, 20 bytes
+   - Datos: 1 word + string "Counter: " (10 bytes total)
+
+ARCHIVOS GENERADOS:
+- output.hex: código máquina de instrucciones
+- output_data.hex: valores de datos en hexadecimal
+- memory_map.txt: mapa detallado de memoria
+
+================================================================================
+                              MANEJO DE CASOS ESPECIALES
+================================================================================
+
+1. ARCHIVOS SOLO CON DATOS:
+   - El ensamblador puede procesar archivos que solo contengan sección .data
+   - No requiere instrucciones para funcionar
+   - Genera solo output_data.hex y memory_map.txt
+   - Muestra advertencia: "Solo se generaron datos, sin instrucciones"
+
+2. ARCHIVOS SOLO CON INSTRUCCIONES:
+   - Procesa normalmente archivos sin sección .data
+   - Genera solo output.hex y output.bin
+   - Funciona como ensamblador tradicional
+
+3. DETECCIÓN AUTOMÁTICA DE TIPOS:
+   - El mapa de memoria detecta automáticamente el tipo de cada directiva
+   - Muestra información específica según el tipo de dato
+   - Para strings: muestra el contenido legible y cantidad de bytes
+
+4. VALIDACIÓN DE SHIFT INSTRUCTIONS:
+   - Las instrucciones de shift (SLLI, SRLI, SRAI) tienen validación especial
+   - Verifican que el shift amount esté en rango 0-31
+   - Usan codificación especial con funct7 + shamt
+
+================================================================================
+                                   CONCLUSIÓN
+================================================================================
+
+Este ensamblador es una implementación completa y robusta que:
+- Soporta toda la ISA base RV32I completa
+- Maneja pseudoinstrucciones comunes de RISC-V
+- Procesa directivas de datos (.word, .half, .byte, .string)
+- Genera mapa detallado de memoria con direcciones y tipos
+- Soporta archivos solo con datos o solo con instrucciones
+- Realiza validación exhaustiva de sintaxis y rangos
+- Genera código máquina optimizado y correcto
+- Proporciona mensajes de error claros con números de línea
+- Maneja casos especiales (shift instructions, strings, etc.)
+- Es extensible para nuevas instrucciones y directivas
+
+CARACTERÍSTICAS AVANZADAS:
+- Análisis sintáctico robusto con SLY parser
+- Manejo de pseudoinstrucciones con expansión automática
+- Resolución de etiquetas en dos pasadas
+- Generación múltiple de archivos de salida
+- Soporte completo para strings con terminador null
+- Mapa de memoria detallado para debugging
+
+La arquitectura modular permite fácil mantenimiento y extensión para
+soportar extensiones adicionales de RISC-V en el futuro como RV32M, RV32F, etc.
