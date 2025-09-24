@@ -718,19 +718,16 @@ def assemble_instruction(instr, labels, instruction_addresses):
         rd, rs1, imm = instr[2], instr[3], instr[4]
         funct3 = int(info[1], 2)
         
-        # Manejo especial para valores hexadecimales y extensión de signo
-        if imm == 0xff:
-            imm = -1
-        elif imm >= 0x80 and imm <= 0xff:
-            imm = imm - 0x100
-        elif imm >= 0x800:
-            imm = imm - 0x1000
-        
         # Verificar rango válido para inmediatos tipo I
         if not (-2048 <= imm <= 2047):
             raise ValueError(f"Línea {line_num}: Inmediato {imm} fuera de rango para tipo I")
         
-        imm_12bit = imm & 0xFFF  # Tomar solo 12 bits del inmediato
+        # Manejar valores negativos en complemento a 2 para 12 bits
+        if imm < 0:
+            imm_12bit = (imm + 4096) & 0xFFF
+        else:
+            imm_12bit = imm & 0xFFF
+        
         word = (imm_12bit << 20) | (rs1 << 15) | (funct3 << 12) | (rd << 7) | opcode
 
     # ===== INSTRUCCIONES TIPO B =====
@@ -934,7 +931,7 @@ def main():
     
     # ===== PASO 1: LEER ARCHIVO DE ENTRADA =====
     try:
-        with open('arquitectura/Assembler/ejemplo.asm', 'r', encoding='utf-8') as f:
+        with open('ejemplo.asm', 'r', encoding='utf-8') as f:
             data = f.read()
         print("Archivo 'ejemplo.asm' leído correctamente")
     except FileNotFoundError:
