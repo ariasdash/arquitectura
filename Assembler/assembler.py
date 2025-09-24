@@ -740,8 +740,15 @@ def assemble_instruction(instr, labels, instruction_addresses):
         rd, rs1, imm = instr[2], instr[3], instr[4]
         funct3 = int(info[1], 2)
         
-        # Manejo especial para instrucciones de shift (SLLI, SRLI, SRAI)
-        if len(info) > 2 and info[2] in ["0000000", "0100000"]:
+        # Determinar si es instrucción de shift basándose en el opcode y funct3
+        is_shift_instruction = (
+            len(info) > 2 and 
+            info[0] == "0010011" and  # Opcode tipo I
+            info[1] in ["001", "101"] and  # funct3 para SLLI/SRLI/SRAI
+            info[2] in ["0000000", "0100000"]  # funct7 válido para shift
+        )
+        
+        if is_shift_instruction:
             # Instrucciones de shift: formato especial con funct7 + shamt
             funct7 = int(info[2], 2)
             shamt = imm & 0x1F  # Solo 5 bits para shift amount (0-31)
@@ -963,7 +970,7 @@ def main():
     
     # ===== PASO 1: LEER ARCHIVO DE ENTRADA =====
     try:
-        with open('ejemplo.asm', 'r', encoding='utf-8') as f:
+        with open('arquitectura/Assembler/ejemplo.asm', 'r', encoding='utf-8') as f:
             data = f.read()
         print("Archivo 'ejemplo.asm' leído correctamente")
     except FileNotFoundError:
