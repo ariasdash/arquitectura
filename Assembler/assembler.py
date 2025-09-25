@@ -93,14 +93,7 @@ def expand_pseudo_instruction(mnemonic, args):
                 instruction = instruction.replace("{rt}", f"x{str_args[1]}")
             if len(str_args) >= 3:
                 instruction = instruction.replace("{offset}", str_args[2])
-        
-        elif mnemonic in ["LI", "LI_SMALL", "LI_LARGE"]:
-            # Load immediate: load immediate value into register
-            if len(str_args) >= 1:
-                instruction = instruction.replace("{rd}", f"x{str_args[0]}")
-            if len(str_args) >= 2:
-                instruction = instruction.replace("{imm}", str_args[1])
-        
+
         elif mnemonic in ["MV", "NOT", "NEG", "SEQZ", "SNEZ", "SLTZ", "SGTZ"]:
             # Unary or move operations
             if len(str_args) >= 1:
@@ -481,6 +474,9 @@ class AsmParser(Parser):
         # ===== R-TYPE INSTRUCTIONS =====
         # Format: op rd, rs1, rs2 (register-register-register)
         if mnemonic in ISA.get('R', {}):
+            # Validate destination register is not x0
+            if vals[0]==0:
+                raise ValueError(f"Line {line_num}: Cannot use x0 as destination register in '{mnemonic}'")
             # Validate operand count
             if len(operands) != 3:
                 raise SyntaxError(f"Line {line_num}: Instruction '{mnemonic}' requires 3 operands, found {len(operands)}")
@@ -510,6 +506,10 @@ class AsmParser(Parser):
                 shift = vals[2]
                 if not (0 <= shift < 32):   # RV32 supports shifts 0-31
                     raise ValueError(f"invalid shift amount: {shift} in {mnemonic}")
+                
+            # Validate destination register is not x0
+            if vals[0]==0:
+                raise ValueError(f"Line {line_num}: Cannot use x0 as destination register in '{mnemonic}'")
     
             # Distinguish between normal format and load instructions
             if any(op[0] == 'MEM' for op in operands):
@@ -962,10 +962,10 @@ def main():
     
     # ===== STEP 1: PARSE COMMAND LINE ARGUMENTS =====
     if len(sys.argv) != 4:
-        print("Usage: python assembler.py program.asm program.hex program.bin")
-        print("  program.asm - Input assembly file")
-        print("  program.hex - Output hexadecimal file")
-        print("  program.bin - Output binary file")
+        print("Usage: python assembler.py ejemplo.asm output.hex output.bin")
+        print("  ejemplo.asm - Input assembly file")
+        print("  output.hex - Output hexadecimal file")
+        print("  output.bin - Output binary file")
         return
     
     input_file = sys.argv[1]    # Input .asm file

@@ -1,10 +1,6 @@
 {
     "NOP": ["addi x0, x0, 0"],
 
-    "LI": ["addi {rd}, x0, {imm}"],
-    "LI_SMALL": ["addi {rd}, x0, {imm}"],
-    "LI_LARGE": ["lui {rd}, %hi({imm})", "addi {rd}, {rd}, %lo({imm})"],
-
     "MV": ["addi {rd}, {rs}, 0"],
     "NOT": ["xori {rd}, {rs}, -1"],
     "NEG": ["sub {rd}, x0, {rs}"],
