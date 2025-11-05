@@ -631,7 +631,7 @@ def first_pass(source_code):
     data_addresses = {}            # Data addresses by line
     
     PC_text = 0x00000000           # Counter for instructions
-    PC_data = 0x00000000           # Counter for data (example base)
+    PC_data = 0x10000000           # Counter for data (example base)
     section = ".text"              # Current section (default)
     
     for lineno, raw in enumerate(source_code.splitlines(), start=1):
@@ -960,17 +960,17 @@ def main():
     """
     print("=== RV32I Assembler ===")
     
-    # ===== STEP 1: PARSE COMMAND LINE ARGUMENTS =====
-    if len(sys.argv) != 4:
-        print("Usage: python assembler.py ejemplo.asm output.hex output.bin")
-        print("  ejemplo.asm - Input assembly file")
-        print("  output.hex - Output hexadecimal file")
-        print("  output.bin - Output binary file")
-        return
-    
-    input_file = sys.argv[1]    # Input .asm file
-    output_hex = sys.argv[2]    # Output .hex file
-    output_bin = sys.argv[3]    # Output .bin file
+    # ===== STEP 1: INPUT/OUTPUT FILES (no CLI required) =====
+    # If 3 arguments are provided, use them; otherwise use sensible defaults next to this script
+    if len(sys.argv) == 4:
+        input_file = sys.argv[1]
+        output_hex = sys.argv[2]
+        output_bin = sys.argv[3]
+    else:
+        input_file = os.path.join(base_dir, "ejemplo.asm")
+        output_hex = os.path.join(base_dir, "output.hex")
+        output_bin = os.path.join(base_dir, "output.bin")
+        print("No CLI args detected; using defaults:")
     
     print(f"Input file: {input_file}")
     print(f"Output hex: {output_hex}")

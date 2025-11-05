@@ -1,0 +1,17 @@
+Analysis & Synthesis Status : Successful - Wed Nov  5 16:11:17 2025
+Quartus Prime Version : 24.1std.0 Build 1077 03/04/2025 SC Lite Edition
+Revision Name : riscvpc
+Top-level Entity Name : top_level
+Family : Cyclone V
+Logic utilization (in ALMs) : N/A
+Total registers : 3641
+Total pins : 73
+Total virtual pins : 0
+Total block memory bits : 16,384
+Total DSP Blocks : 0
+Total HSSI RX PCSs : 0
+Total HSSI PMA RX Deserializers : 0
+Total HSSI TX PCSs : 0
+Total HSSI PMA TX Serializers : 0
+Total PLLs : 1
+Total DLLs : 0

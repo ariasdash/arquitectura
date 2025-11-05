@@ -1,27 +1,6 @@
-.data
-    number: .word 42
-    message: .string "Hello, RISC-V!"
-
-.text
-main:
-    # Load immediate value
-    addi t0, zero, 10
-    
-    # Arithmetic operations
-    add t2, t0, t1
-    sub t3, t2, t0
-    
-    # Branch example
-    beq t2, t1, equal
-    bne t2, t1, not_equal
-    
-equal:
-    addi a0, zero, 1
-    j end
-    
-not_equal:
-    addi a0, zero, 0
-    
-end:
-    # System call
-    ecall
+addi x1, x0, 5
+addi x2, x0, 6
+add x3, x1, x2
+addi x7, x1, 1
+lw x4, 4(x1)
+sw x3, 4(x4)
