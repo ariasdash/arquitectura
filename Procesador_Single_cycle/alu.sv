@@ -1,7 +1,6 @@
 module Alu(
 	input wire[31:0] A,B,
 	input wire[3:0] AluOp,
-	output reg zero,
 	output reg [31:0]AluResult
 );
 
@@ -32,10 +31,8 @@ always @(*)
 	4'b0111: AluResult = $signed(A) >>> B[4:0];
 	4'b1000: AluResult = ($signed(A) < $signed(B)) ? 32'b1:32'b0;
 	4'b1001: AluResult = A < B ? 32'b1:32'b0;
+	4'b1111: AluResult = B;
 	endcase
-	
-	//marca si el resultado es 0 util para las instrucciones tipo B
-	zero = (AluResult == 32'b0);
 	
 	end
 

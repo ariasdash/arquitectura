@@ -20,10 +20,10 @@ module register_unit (
     assign data_out1 = (rs1 == 5'd0) ? 32'd0 : regs[rs1];
     assign data_out2 = (rs2 == 5'd0) ? 32'd0 : regs[rs2];
 
-    // Bloque always con reseteo asincrono activo-bajo
+    // [MODIFICADO] Bloque always con reseteo asincrono activo-bajo
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            // Logica de Reset: Pone todos los registros a 0
+            // Logica de Reseteo: Pone todos los registros a 0
             for (int i = 0; i < 32; i = i + 1) begin
                 regs[i] <= 32'd0;
             end

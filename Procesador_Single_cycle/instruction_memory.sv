@@ -13,16 +13,19 @@ module InstructionMemory (
 
     // Carga inicial de la memoria desde el archivo
     initial begin
-        $readmemh("output.bin", memory);
+        $readmemh("output.hex", memory);
     end
 
     // Lectura de instrucción (combinacional)
+    // CORREGIDO: Usa addr[8:2] (7 bits) para direccionar memory[0:127]
     always_comb begin
         instr = memory[addr[8:2]];
     end
 
     // Lectura de depuración (combinacional)
+    // AÑADIDO: Expone el contenido de la memoria basado en debug_addr
     assign debug_data = memory[debug_addr];
 
+    // La asignación "assign memory_debug = memory;" se elimina.
 
 endmodule

@@ -4,22 +4,6 @@
 			"name" : "Top",
 			"pins" : [
 				{
-					"name" : "leds[2]",
-					"strict" : false
-				},
-				{
-					"name" : "leds[3]",
-					"strict" : false
-				},
-				{
-					"name" : "leds[5]",
-					"strict" : false
-				},
-				{
-					"name" : "leds[4]",
-					"strict" : false
-				},
-				{
 					"name" : "VGA_G[4]",
 					"strict" : false
 				},
@@ -33,6 +17,26 @@
 				},
 				{
 					"name" : "VGA_VS",
+					"strict" : false
+				},
+				{
+					"name" : "display0[0]",
+					"strict" : false
+				},
+				{
+					"name" : "display0[1]",
+					"strict" : false
+				},
+				{
+					"name" : "display0[2]",
+					"strict" : false
+				},
+				{
+					"name" : "display0[3]",
+					"strict" : false
+				},
+				{
+					"name" : "display0[4]",
 					"strict" : false
 				},
 				{
@@ -121,30 +125,6 @@
 				},
 				{
 					"name" : "VGA_B[7]",
-					"strict" : false
-				},
-				{
-					"name" : "leds[6]",
-					"strict" : false
-				},
-				{
-					"name" : "display0[0]",
-					"strict" : false
-				},
-				{
-					"name" : "display0[1]",
-					"strict" : false
-				},
-				{
-					"name" : "display0[2]",
-					"strict" : false
-				},
-				{
-					"name" : "display0[3]",
-					"strict" : false
-				},
-				{
-					"name" : "display0[4]",
 					"strict" : false
 				},
 				{
@@ -248,6 +228,26 @@
 					"strict" : false
 				},
 				{
+					"name" : "leds[2]",
+					"strict" : false
+				},
+				{
+					"name" : "leds[3]",
+					"strict" : false
+				},
+				{
+					"name" : "leds[4]",
+					"strict" : false
+				},
+				{
+					"name" : "leds[5]",
+					"strict" : false
+				},
+				{
+					"name" : "leds[6]",
+					"strict" : false
+				},
+				{
 					"name" : "leds[7]",
 					"strict" : false
 				},
@@ -260,6 +260,10 @@
 					"strict" : false
 				},
 				{
+					"name" : "sw0",
+					"strict" : false
+				},
+				{
 					"name" : "sw1",
 					"strict" : false
 				},
@@ -268,7 +272,7 @@
 					"strict" : false
 				},
 				{
-					"name" : "sw0",
+					"name" : "vgarstl",
 					"strict" : false
 				},
 				{
@@ -277,10 +281,6 @@
 				},
 				{
 					"name" : "rst_n",
-					"strict" : false
-				},
-				{
-					"name" : "vgarstl",
 					"strict" : false
 				}
 			]

@@ -4,10 +4,16 @@ module decoder( //control unit
     output logic        regWrite,
     output logic [4:0]  rs1, rs2, rd,
 	 output logic [2:0] imm_src,
-	 output logic 		  aluB_src,
+	 output logic 		   aluB_src, aluA_src,
+	 output logic [2:0]	brOp,
+	 output logic 			branch, 
     output logic        MemRead,
     output logic        MemWrite,
-    output logic        MemToReg
+    output logic [1:0]  MemToReg,
+	 output logic 			is_jalr,
+	 output logic 			is_jal,
+	 output logic 			halt
+	 
 );
 
     logic [6:0] opcode;
@@ -22,14 +28,19 @@ module decoder( //control unit
     assign funct7 = instr[31:25];
 
     always_comb begin
-    // Valores por defecto para evitar latches
     regWrite = 0;
     AluOp    = 4'b0000;
     imm_src  = 3'b000;
-    aluB_src = 0;  // <-- ESTE es el importante
-	MemRead  = 0;
+    aluB_src = 0;
+	 aluA_src = 0;
+	 brOp 	 = 3'b010;
+	 branch   = 0;
+	 MemRead  = 0;
     MemWrite = 0;
-    MemToReg = 0;
+    MemToReg = 2'b00;
+	 is_jalr  = 0;
+	 is_jal   =0;
+	 halt		 =0;
 
     case (opcode)
         7'b0110011: begin  // Tipo R
@@ -87,6 +98,71 @@ module decoder( //control unit
                 imm_src  = 3'b010;   // tipo S
                 AluOp    = 4'b0000;  // suma para calcular dirección
             end
+		 7'b1100011: begin //tipo B
+					branch = 1;
+					aluA_src = 1; // usa pc como operando A
+					aluB_src = 1;
+					imm_src = 3'b011;
+					AluOp   = 4'b0000;
+					case(funct3)
+						 3'b000: brOp = 3'b000; // BEQ
+						 3'b001: brOp = 3'b001; // BNE
+						 3'b100: brOp = 3'b100; // BLT
+						 3'b101: brOp = 3'b101; // BGE
+						 3'b110: brOp = 3'b110; // BLTU
+						 3'b111: brOp = 3'b111; // BGEU
+					 endcase
+				end
+				
+			//tipo u 
+			//lui
+			7'b0110111: begin
+				 regWrite = 1;
+				 aluA_src = 0;
+				 aluB_src = 1;
+				 imm_src  = 3'b100;
+				 AluOp    = 4'b1111; 
+			end
+			
+			//auipc
+			7'b0010111: begin 
+				 regWrite = 1;
+				 aluA_src = 1; 
+				 aluB_src = 1;
+				 imm_src  = 3'b100;
+				 AluOp    = 4'b0000; 
+			end
+			
+			// jalr
+			7'b1100111: begin
+            regWrite = 1;      
+            imm_src  = 3'b000; 
+            aluA_src = 0;      
+            aluB_src = 1;      
+            AluOp    = 4'b0000;
+            MemToReg = 2'b10;  
+            is_jalr  = 1;    
+			end	
+			//jal
+			7'b1101111: begin 
+				regWrite = 1;
+            imm_src  = 3'b101; 
+            aluA_src = 0;      
+            aluB_src = 0;     
+            AluOp    = 4'b0000; 
+            MemToReg = 2'b10; 
+            is_jal   = 1; 
+			end
+			//ebreak
+			7'b1110011: begin
+            if (funct3 == 3'b000) begin
+               if (instr[20] == 1'b1) begin
+                  halt = 1; 
+               end
+            end
+         end
+			
+
 
         default: begin
         end

@@ -44,24 +44,61 @@ module top_level (
 	logic [4:0] rs1, rs2, rd;
 	logic [31:0] reg_data1, reg_data2;
 	logic [31:0] alu_result;
-	logic zero_flag;
 
 	logic [31:0] imm;
-	logic [31:0] alu_B;                // salida del MUX (segundo operando de la ALU)
+	logic [31:0] alu_B, alu_A;                // salida del MUX (segundo operando de la ALU)
 	logic [2:0] imm_src;
+	logic [2:0] brOp;
 	logic aluB_src;
-	logic MemRead, MemWrite, MemToReg;
+	logic MemRead, MemWrite;
+   logic [1:0]  MemToReg;
+	logic  branch_taken;
+	logic is_branch_instr;
+	logic [31:0] branch_target;
+	logic is_jalr_w;
+	logic is_jal_w;
+	logic [31:0] pc_4;
+	logic halt_s;
 
 	logic [31:0] mem_read_data;        // dato leido de memoria
 	logic [31:0] write_back_data;      // dato final que vuelve al registro (ALU o Memoria)
 
+	//  pasa de [31:0] a [7:0] para coincidir con el puerto 'mem' de color
 	logic [7:0] mem_debug_wire [0:127]; // memoria de datos (array de bytes)
 
 	logic [31:0] regs_debug [31:0]; // registros
 
-	//  Conexion entre Color y Instruction Memory para depuracion
+	//  Wires para conectar color.sv <-> InstructionMemory
 	logic [6:0]  imem_debug_addr_wire;
 	logic [31:0] imem_debug_data_wire;
+	
+	logic pc_src;
+   assign pc_src = (branch_taken & is_branch_instr) | is_jal_w;
+	
+	assign pc_4 = pc_addr + 4;
+	
+	
+	//mux del pc
+always_comb begin
+        if (halt_s) begin
+            // EBREAK: Congelar el PC (Next = Current)
+            // El procesador se queda "atascado" aquí a propósito.
+            next_pc = pc_addr; 
+        end
+        else if (is_jalr_w) begin
+            // JALR (Prioridad 1)
+            next_pc = alu_result & 32'hFFFFFFFE;
+        end
+        else if (pc_src) begin
+            // Branch o JAL (Prioridad 2)
+            next_pc = branch_target;
+        end
+        else begin
+            // Flujo Normal (Prioridad 3)
+            next_pc = pc_4;
+        end
+    end
+
 
 
 	// =====================
@@ -71,11 +108,10 @@ module top_level (
 	// PC (usa clk, el boton de avance)
 	pc u_pc (
 		.clk(clk),
-		.rst_n(rst_n), // Reset activo-bajo
+		.rst_n(rst_n),
 		.address(pc_addr),
 		.next_pc(next_pc)
-	);
-
+);
 	// Instruction Memory
 	InstructionMemory u_imem (
 		.addr(pc_addr),
@@ -96,7 +132,13 @@ module top_level (
 		.rs2(rs2),
 		.rd(rd),
 		.imm_src(imm_src),
-		.aluB_src(aluB_src)
+		.aluB_src(aluB_src),
+		.aluA_src(aluA_src),
+		.brOp(brOp),
+		.branch(is_branch_instr),
+		.is_jalr(is_jalr_w),
+		.is_jal(is_jal_w),
+		.halt(halt_s)
 	);
 
 	// Register unit (usa clk, el boton de avance)
@@ -121,22 +163,38 @@ module top_level (
 	);
 
 	// MUX para seleccionar segundo operando de la ALU
-	mux2_1 u_mux (
+	mux2_1 B_mux (
 		.x(reg_data2),
 		.y(imm),
 		.select(aluB_src),
 		.r(alu_B)
 	);
 
+	// MUX para seleccionar primer operando de la ALU
+	mux2_1 A_mux (
+		.x(reg_data1),
+		.y(pc_addr),
+		.select(aluA_src),
+		.r(alu_A)
+	);
+	
 	// ALU
 	Alu u_alu (
-		.A(reg_data1),
+		.A(alu_A),
 		.B(alu_B),
 		.AluOp(aluOp),
-		.zero(zero_flag),
 		.AluResult(alu_result)
 	);
-
+	
+	branch_unit u_branch_unit(
+    .brOp(brOp),
+    .rs1(reg_data1),
+    .rs2(reg_data2),
+    .pc(pc_addr),          // <-- PC actual
+    .imm_branch(imm),  
+    .branch_taken(branch_taken),
+    .branch_target(branch_target)
+);
 	// DATA MEMORY (usa clk, el boton de avance)
 	data_memory u_mem (
 		.clk(clk),
@@ -154,7 +212,8 @@ module top_level (
 		.alu_result(alu_result),
 		.mem_data(mem_read_data),
 		.MemToReg(MemToReg),
-		.write_back(write_back_data)
+		.write_back(write_back_data),
+		.pc_4(pc_4)
 	);
 
 	// =====================
@@ -196,8 +255,8 @@ module top_level (
 		.pc_addr           (pc_addr),          // Program Counter
 		.instr             (instr),            // Instruction
 		.alu_result        (alu_result),       // ALU Result
-		.reg_data1         (rs1),        // Data read from RS1 
-		.reg_data2         (rs2),        // Data read from RS2
+		.reg_data1         (reg_data1),        // Data read from RS1 
+		.reg_data2         (reg_data2),        // Data read from RS2
 		.rd_data           (rd),        // register destiny
 		.regWrite          (regWrite),         // Control Signal: Register Write Enable
 		.MemRead           (MemRead),          // Control Signal: Data Memory Read
@@ -211,8 +270,15 @@ module top_level (
 		.imm_src           (imm_src),
 		.mem               (mem_debug_wire),   // Memoria de Datos (bytes)
 		.regs_debug        (regs_debug),       // Registros
+		.brOp					 (brOp),
+		.branch_target	    (branch_target),
+		.branch_taken		 (branch_taken),
+		.is_jalr_w		    (is_jalr_w),
+		.is_jal_w			 (is_jal_w),
+		.MemToReg			 (MemToReg),
+		.halt_s				 (halt_s),
 
-		// Puertos para depuracion de Instruction Memory
+		// [FIX 4: Puertos de depuración para Memoria de Instrucciones]
 		.inst_mem_debug_addr(imem_debug_addr_wire),
 		.inst_mem_debug_data(imem_debug_data_wire),
 

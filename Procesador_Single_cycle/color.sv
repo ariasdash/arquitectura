@@ -21,6 +21,13 @@ module color(
   input [31:0] imm_src,
   input [7:0]  mem [0:127],         // Data Memory (array de bytes)
   input [31:0] regs_debug [31:0],   // Register File
+  input [2:0] brOp,
+  input   branch_taken,
+  input [31:0] branch_target,
+  input [1:0] MemToReg,
+  input is_jalr_w,
+  input is_jal_w,
+  input halt_s,
 
   //Puertos para la Memoria de Instrucciones
   output logic [6:0]  inst_mem_debug_addr, // Puerto de SALIDA para pedir una dirección
@@ -88,7 +95,8 @@ module color(
   localparam TEXT_START_X_COL3 = TEXT_START_X_COL2 + (CHARS_PER_LINE*CHAR_W) + 20;
   localparam TEXT_START_Y = 40;
 
-  // --- Buffers de Texto ---
+  // --- Buffers de Texto [OPTIMIZADOS] ---
+  // Declarados al tamaño que realmente se usa (40 líneas x 20 caracteres)
   reg [7:0] text [0:LINES_PER_COL-1][0:CHARS_PER_LINE-1];
   reg [7:0] text2[0:LINES_PER_COL-1][0:CHARS_PER_LINE-1];
   reg [7:0] text3[0:LINES_PER_COL-1][0:CHARS_PER_LINE-1];
@@ -101,8 +109,10 @@ module color(
   endfunction
 
   //Contador para leer la memoria de instrucciones secuencialmente
+  // Mostraremos las primeras 16 palabras (0-15)
   reg [4:0] imem_display_addr = 0;
 
+  // [FIX 3] Conectamos el contador al puerto de dirección de memoria de instr.
   // Pedimos la dirección que indica el contador.
   assign inst_mem_debug_addr = imem_display_addr;
 
@@ -282,8 +292,59 @@ module color(
     text[14][10] = num_to_ascii(imm_src[7:4]);
     text[14][11] = num_to_ascii(imm_src[3:0]);
 
+	 // BOP (Branch Op)
+    text[15][0] = "B"; text[15][1] = "O"; text[15][2] = "P"; text[15][3] = ":";
+    
+    // Bit más significativo (brOp[2])
+    text[15][4] = num_to_ascii({3'b000, brOp[2]}); 
+    
+    // Bit del medio (brOp[1])
+    text[15][5] = num_to_ascii({3'b000, brOp[1]}); 
+    
+    // Bit menos significativo (brOp[0])
+    text[15][6] = num_to_ascii({3'b000, brOp[0]});
+	 
+	 
+	 //branch_taken 
+	 
+	 text[16][0] = "B"; text[16][1] = "T";text[16][2] = "K"; text[16][3] = ":";
+    text[16][4] = num_to_ascii(branch_taken);
+	 
+	 //branch_target
+	 
+	 text[17][0] = "B"; text[17][1] = "T";text[17][2] = "G"; text[17][3] = ":";
+	 text[17][4] = num_to_ascii(branch_target[31:28]);
+    text[17][5] = num_to_ascii(branch_target[27:24]);
+    text[17][6] = num_to_ascii(branch_target[23:20]);
+    text[17][7] = num_to_ascii(branch_target[19:15]);
+    text[17][8] = num_to_ascii(branch_target[16:12]);
+    text[17][9] = num_to_ascii(branch_target[11:8]);
+    text[17][10] = num_to_ascii(branch_target[7:4]);
+    text[17][11] = num_to_ascii(branch_target[3:0]);
+	 
+	 // JLR: 0 o 1
+    text[18][1] = "J"; text[18][2] = "L"; text[18][3] = "R"; text[18][4] = ":";
+    text[18][5] = num_to_ascii({3'b000, is_jalr_w});
+	 
+	 // MTR: 00, 01 o 10 
+    text[19][0] = "M"; text[19][1] = "T"; text[19][2] = "R"; text[19][3] = ":";
+    text[19][4] = num_to_ascii({2'b00, MemToReg}); 
+	 
+	 // JAL: 0 o 1
+    text[20][1] = "J"; text[20][2] = "A"; text[20][3] = "L"; text[20][4] = ":";
+    text[20][5] = num_to_ascii({3'b000, is_jal_w});
+	 
+	 //HALT : 0 o 1 
+    text[21][1] = "H"; text[21][2] = "L"; text[21][3] = "T"; text[21][4] = ":";
+    text[21][5] = num_to_ascii({3'b000, halt_s});
+	 
+	 
+	 
+	 
+
 
     // --- Columna 1: Memoria de Datos (text2) ---
+    // Muestra las primeras 16 palabras (64 bytes
 	 
 	 text2[0][0] = "D"; text2[0][1] = "M"; text2[0][2] = "E"; text2[0][3] = "M"; 
 
@@ -312,10 +373,9 @@ module color(
     end
 
     // --- Columna 2: Registros (text3) ---
-
+    // Muestra los 32 registros
 	 text3[0][0] = "R"; text3[0][1] = "E"; text3[0][2] = "G"; text3[0][3] = "I"; 
     for(i = 0; i < 32; i++) begin
-
       // Registro (x00, x01, ..., x31)
       text3[i+1][0] = "x";
       text3[i+1][1] = num_to_ascii(i[4:4]);
@@ -339,10 +399,11 @@ module color(
 
     base = imem_display_addr * 4; 
     
-    // Se guarda el dato que acaba de llegar
+    // Guardamos el dato que acaba de llegar
     imem_word_data = inst_mem_debug_data; 
 
-    // Se escribe la dirección (ej: "0000000C") en la línea 'imem_display_addr'
+    // Escribimos la dirección (ej: "0000000C") en la línea 'imem_display_addr'
+    // Asumimos que la dirección de 7 bits [6:0] es suficiente.
     text4[imem_display_addr + 1][0] = "0";
     text4[imem_display_addr + 1][1] = "x";
     text4[imem_display_addr + 1][2] = num_to_ascii(base[7:4]); // Mostrando solo 8 bits de dirección
@@ -350,7 +411,7 @@ module color(
     text4[imem_display_addr + 1][4] = ":";
     text4[imem_display_addr + 1][5] = " ";
 
-    // se escribe el dato (la instrucción en sí)
+    // Escribimos el dato (la instrucción en sí)
     text4[imem_display_addr + 1][6]  = num_to_ascii(imem_word_data[31:28]);
     text4[imem_display_addr + 1][7]  = num_to_ascii(imem_word_data[27:24]);
     text4[imem_display_addr + 1][8]  = num_to_ascii(imem_word_data[23:20]);
@@ -361,7 +422,7 @@ module color(
     text4[imem_display_addr + 1][13] = num_to_ascii(imem_word_data[7:4]);
     text4[imem_display_addr + 1][14] = num_to_ascii(imem_word_data[3:0]);
 
-    // Se incrementa el contador para la proxima direccion a pedir
+    // Incrementamos el contador para la PRÓXIMA dirección a pedir
     if (imem_display_addr == 31) begin
       imem_display_addr <= 0; // Vuelve al inicio
     end else begin
