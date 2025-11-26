@@ -80,21 +80,16 @@ module top_level (
 	
 	//mux del pc
 always_comb begin
-        if (halt_s) begin
-            // EBREAK: Congelar el PC (Next = Current)
-            // El procesador se queda "atascado" aquí a propósito.
+	if (halt_s) begin
             next_pc = pc_addr; 
         end
         else if (is_jalr_w) begin
-            // JALR (Prioridad 1)
             next_pc = alu_result & 32'hFFFFFFFE;
         end
         else if (pc_src) begin
-            // Branch o JAL (Prioridad 2)
             next_pc = branch_target;
         end
         else begin
-            // Flujo Normal (Prioridad 3)
             next_pc = pc_4;
         end
     end
